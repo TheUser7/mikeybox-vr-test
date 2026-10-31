@@ -11,3 +11,5 @@ button{width:100%;padding:15px;border:1px solid #48bfa9;border-radius:12px;backg
 .status{min-height:24px;color:#9ee5d1;font-size:13px}
 .howto{display:grid;gap:8px;margin-top:20px;padding:14px;border-radius:12px;background:#203642;color:#bfd0d9;font-size:13px}
 .howto b{color:#f4f8fb}
+
+.version-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:14px 0 4px;padding:9px 11px;border:1px solid #4b8b85;border-radius:10px;background:linear-gradient(90deg,#143d3b,#1d3440);font-size:12px;letter-spacing:.04em}.version-label{color:#a9c9d3;font-size:10px;font-weight:800;letter-spacing:.12em}.version-row strong{color:#85f0d2;font-size:15px;font-weight:900}.build-label{margin-left:auto;color:#c4d4dc;font-size:10px;font-weight:700;letter-spacing:.07em}

@@ -94,3 +94,8 @@ The transform gizmo is attached directly to the scene rather than the scalable w
 - Merely selecting an item never enables two-hand item scaling. Empty-hand grips in B/object-only mode cannot scale or move the player.
 
 The source passed a JavaScript syntax check and the ZIP package passed integrity checks. A physical Quest 3 test is still required to confirm controller pose and button behavior in Quest Browser.
+
+
+## Site version identification
+
+The landing page displays a prominent site-version badge: **ALPHA v0.8.0 · BUILD 2026.10.31-r1**. The same version and build ID are printed in the footer of every in-VR menu page, so the deployed Quest site can be identified without checking the ZIP filename. When publishing a later build, update `SITE_VERSION`, `SITE_BUILD_ID` in `app.js`, and the matching badge/title in `index.html`.

@@ -1,5 +1,9 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js";
 
+// Visible release identification: update this tag for each published site build.
+const SITE_VERSION = "ALPHA v0.8.0";
+const SITE_BUILD_ID = "2026.10.31-r1";
+
 const $ = (id) => document.getElementById(id);
 const scene = new THREE.Scene();
 const worldGroup = new THREE.Group();
@@ -557,13 +561,14 @@ function clearPanel() {
 }
 function drawPanelBackground(title) {
   const bg = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.68, 1.98),
+    new THREE.PlaneGeometry(1.68, 2.12),
     new THREE.MeshBasicMaterial({ color: 0x101e28, transparent: true, opacity: 0.96, depthWrite: false })
   );
   bg.position.z = -0.015;
   panel.add(bg);
   addPanelText(title, 0, 0.86, 1.55, 0.14, 42);
-  addPanelText(statusText, 0, 0.70, 1.53, 0.10, 25, "#9ee5d1");
+  addPanelText(statusText, 0, 0.68, 1.53, 0.09, 23, "#9ee5d1");
+  addPanelText(`${SITE_VERSION} · BUILD ${SITE_BUILD_ID}`, 0, -1.025, 1.48, 0.055, 14, "#83d9c7");
 }
 function drawMainPanel() {
   clearPanel();
