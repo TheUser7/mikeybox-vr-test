@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
-const SITE_VERSION = "ALPHA v0.9.4";
-const SITE_BUILD_ID = "2026.10.31-r6";
+const SITE_VERSION = "ALPHA v0.9.6";
+const SITE_BUILD_ID = "2026.10.31-r8";
 const UI_PANEL_FONT_SCALE = 1.28;
 const UI_BUTTON_FONT_SCALE = 1.22;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -200,6 +200,7 @@ const snapConfig = {
   rotationStepDegrees: 15 // degrees
 };
 let statusText = "Enter VR. Select a part, then use its XYZ arrows and rotation circles.";
+let statusTextMesh = null;
 let audioContext = null;
 let audioLoadPromise = null;
 const audioBuffers = Object.create(null);
@@ -569,11 +570,14 @@ function addPanelText(text, x, y, width, height, fontSize = 42, color = "#f5f8fb
     new THREE.MeshBasicMaterial({
       map: makeAspectCanvasTexture(text, width / height, fontSize * UI_PANEL_FONT_SCALE, color, 2048),
       transparent: true,
+      depthTest: false,
       depthWrite: false,
       toneMapped: false
     })
   );
   mesh.position.set(x, y, 0.025);
+  mesh.renderOrder = 100;
+  mesh.frustumCulled = false;
   panel.add(mesh);
   return mesh;
 }
@@ -601,11 +605,14 @@ function addButton(label, action, x, y, width = 0.34, height = 0.15, tone = "nor
     new THREE.MeshBasicMaterial({
       map: makeAspectCanvasTexture(label, (width * 0.94) / (height * 0.76), 54 * UI_BUTTON_FONT_SCALE, "#f5f8fb", 1024),
       transparent: true,
+      depthTest: false,
       depthWrite: false,
       toneMapped: false
     })
   );
   face.position.z = 0.024;
+  face.renderOrder = 101;
+  face.frustumCulled = false;
   button.add(face);
   panel.add(button);
   uiButtons.push(button);
@@ -626,6 +633,7 @@ function clearPanel() {
   }
   panel.clear();
   uiButtons.length = 0;
+  statusTextMesh = null;
 }
 function drawPanelBackground(title) {
   const bg = new THREE.Mesh(
@@ -635,7 +643,7 @@ function drawPanelBackground(title) {
   bg.position.z = -0.015;
   panel.add(bg);
   addPanelText(title, 0, 0.86, 1.55, 0.14, 42);
-  addPanelText(statusText, 0, 0.68, 1.53, 0.09, 23, "#9ee5d1");
+  statusTextMesh = addPanelText(statusText, 0, 0.68, 1.53, 0.09, 23, "#9ee5d1");
   addPanelText(`${SITE_VERSION} · BUILD ${SITE_BUILD_ID}`, 0, -1.025, 1.48, 0.055, 14, "#83d9c7");
 }
 function drawMainPanel() {
@@ -790,8 +798,32 @@ function redrawPanel() {
   else drawMainPanel();
 }
 function setStatus(text) {
-  statusText = String(text);
-  if (panelReady) redrawPanel();
+  const nextStatus = String(text);
+  const changed = nextStatus !== statusText;
+  if (changed) {
+    statusText = nextStatus;
+
+    // Status updates can be emitted continuously while the user is grabbing
+    // or scaling. Rebuilding the entire wrist menu every XR frame disposes
+    // and recreates every canvas texture, which looks like the text is
+    // blinking on Quest Browser. Update only the existing status-line map.
+    if (panelReady && statusTextMesh?.material) {
+      const previousMap = statusTextMesh.material.map;
+      const nextMap = makeAspectCanvasTexture(
+        statusText,
+        1.53 / 0.09,
+        23 * UI_PANEL_FONT_SCALE,
+        "#9ee5d1",
+        2048
+      );
+      statusTextMesh.material.map = nextMap;
+      statusTextMesh.material.needsUpdate = true;
+      if (previousMap) previousMap.dispose();
+    }
+  }
+
+  // Keep the desktop landing-page status synchronized even when the initial
+  // message happens to match the already initialized in-app status string.
   const statusEl = $("landingStatus");
   if (statusEl) statusEl.textContent = statusText;
 }
@@ -1046,8 +1078,60 @@ function handleSnapValueAction(action) {
   redrawPanel();
 }
 function nodeGroup(node) { return node.parent ? node.parent.group : rootGroup; }
+
+// Match Mikeybox's native GrabbableObject.CalcPhysicalScale fallback curve.
+// Prime uses prefab-specific ranges when available; its shared rules fallback is
+// min=0.2 / max=2.5. This builder uses that same fallback for its scale values.
+const ITEM_SCALE_RANGE_OVERRIDES = new Map([
+  ["item_fish_rotten_fish", { min: 0.8, max: 1.2 }],
+  ["item_fish_fishsword", { min: 0.8, max: 1.2 }]
+]);
+function scaleRangeForItem(itemID) {
+  return ITEM_SCALE_RANGE_OVERRIDES.get(String(itemID || "")) || { min: 0.2, max: 2.5 };
+}
+function physicalScaleForItem(item) {
+  const modifier = THREE.MathUtils.clamp(Math.round(Number(item?.scaleModifier || 0)), -128, 127);
+  const { min, max } = scaleRangeForItem(item?.itemID);
+  return modifier < 0
+    ? 1 + (min - 1) * (-modifier / 128)
+    : 1 + (max - 1) * (modifier / 127);
+}
+function scaleModifierForPhysicalScale(scale, itemID) {
+  const { min, max } = scaleRangeForItem(itemID);
+  const desired = THREE.MathUtils.clamp(Number(scale) || 1, min, max);
+  if (desired < 1) return THREE.MathUtils.clamp(Math.round(-128 * (1 - desired) / (1 - min)), -128, 0);
+  return THREE.MathUtils.clamp(Math.round(127 * (desired - 1) / (max - 1)), 0, 127);
+}
+// A small set of prefabs uses a view scale different from its physical scale.
+// Prime applies this ratio when it draws stuck children; mirror it when encoding
+// and decoding child display poses so those attachments stay where they appear.
+const STUCK_DRAW_RATIOS = new Map([
+  ["item_alienblaster", 0.4], ["item_backrooms_chair", 0.6], ["item_brain_chunk", 0.15],
+  ["item_bubble_gun", 0.4], ["item_eye_googly", 0.01], ["item_flamethrower", 0.4],
+  ["item_flamethrower_skull", 0.4], ["item_flamethrower_skull_blood", 0.4],
+  ["item_flamethrower_skull_ruby", 0.4], ["item_glitched_banana", 10], ["item_heart_chunk", 0.15],
+  ["item_hh_key", 3.816], ["item_key_challengearena", 3.816], ["item_key_factoryboss_easy", 3.816],
+  ["item_key_factoryboss_hard", 3.816], ["item_key_factoryboss_medium", 3.816],
+  ["item_mannequin_arm_left", 0.7], ["item_mannequin_arm_right", 0.7], ["item_mannequin_head", 0.7],
+  ["item_mannequin_leg_left", 0.7], ["item_mannequin_leg_right", 0.7], ["item_mannequin_torso", 0.7],
+  ["item_moonhorror_key", 3.816], ["item_mountain_key", 3.816], ["item_ore_copper_l", 0.15],
+  ["item_ore_copper_m", 0.15], ["item_ore_copper_s", 0.15], ["item_ore_gold_l", 0.15],
+  ["item_ore_gold_m", 0.15], ["item_ore_gold_s", 0.15], ["item_ore_hell", 0.11],
+  ["item_ore_silver_l", 0.15], ["item_ore_silver_m", 0.15], ["item_ore_silver_s", 0.15],
+  ["item_quest_key_graveyard", 3.816], ["item_shadowboss_key", 3], ["item_trampoline", 2],
+  ["item_upsidedown_loot", 0.15], ["item_uranium_chunk_l", 0.15], ["item_uranium_chunk_m", 0.15],
+  ["item_uranium_chunk_s", 0.15], ["item_volatile_brain_chunk", 0.23]
+]);
+function stuckDrawRatioForItem(itemID) { return STUCK_DRAW_RATIOS.get(String(itemID || "")) || 1; }
 function syncMesh(node) {
-  node.mesh.scale.setScalar(Math.max(0.01, 1 + Number(node.item.scaleModifier || 0) / 128));
+  // Keep the render transform synchronized with the editor's authoritative pose.
+  // Previously some transform paths changed node.position/quaternion without
+  // updating node.group, so the displayed pose and exported pose diverged.
+  if (node.group) {
+    node.group.position.copy(node.position);
+    node.group.quaternion.copy(node.quaternion).normalize();
+  }
+  if (node.mesh) node.mesh.scale.setScalar(physicalScaleForItem(node.item));
   if (node === selected) updateTransformGizmo();
 }
 function makeItemPreviewGeometry(id) {
@@ -1111,16 +1195,9 @@ async function loadModelForNode(node, itemID) {
     const longestSide = Math.max(rawSize.x, rawSize.y, rawSize.z);
     if (!Number.isFinite(longestSide) || longestSide < 0.00001) throw new Error("The GLB model has invalid dimensions.");
 
-    // Normalize every source model to a consistent preview footprint. Preserve
-    // proportions, center X/Z, and place its lowest point on the object's origin.
-    const normalizeFactor = 0.44 / longestSide;
-    modelRoot.scale.multiplyScalar(normalizeFactor);
-    modelRoot.updateMatrixWorld(true);
-    bounds = new THREE.Box3().setFromObject(modelRoot);
-    const center = bounds.getCenter(new THREE.Vector3());
-    modelRoot.position.x -= center.x;
-    modelRoot.position.z -= center.z;
-    modelRoot.position.y -= bounds.min.y;
+    // Keep the GLB's authored origin, rotation and units intact. Re-centering,
+    // grounding or normalizing the scene root changes the prefab pivot relative
+    // to attached children, causing a different layout after native JSON export.
     modelRoot.updateMatrixWorld(true);
     bounds = new THREE.Box3().setFromObject(modelRoot);
 
@@ -1186,7 +1263,8 @@ function createNode(item, parent = null, position = null) {
     position: position ? new THREE.Vector3(...position) : new THREE.Vector3(parent ? 0.35 : 0, parent ? 0.15 : 1.1, 0),
     quaternion: new THREE.Quaternion(), group: new THREE.Group(), mesh: null,
     previewMesh: null, edgeMesh: null, labelSprite: null, modelRoot: null,
-    modelRequestSerial: 0, hasModel: false
+    modelRequestSerial: 0, hasModel: false,
+    edgePose: { subParentID: 0, posePos: [0, 0, 0], poseRot: [0, 0, 0, 1], wasDynamicStuck: false }
   };
   node.group.name = item.itemID;
   (parent ? parent.group : rootGroup).add(node.group);
@@ -1213,23 +1291,67 @@ function refreshNodeID(node, id) {
   oldMap?.dispose();
   loadModelForNode(node, id);
 }
+function normalizedPoseQuaternion(values, fallback = [0, 0, 0, 1]) {
+  const a = Array.isArray(values) ? values : fallback;
+  return new THREE.Quaternion(
+    Number.isFinite(Number(a[0])) ? Number(a[0]) : fallback[0],
+    Number.isFinite(Number(a[1])) ? Number(a[1]) : fallback[1],
+    Number.isFinite(Number(a[2])) ? Number(a[2]) : fallback[2],
+    Number.isFinite(Number(a[3])) ? Number(a[3]) : fallback[3]
+  ).normalize();
+}
+function nativePosePosition(values) {
+  const a = Array.isArray(values) ? values : [0, 0, 0];
+  return new THREE.Vector3(
+    Number.isFinite(Number(a[0])) ? Number(a[0]) : 0,
+    Number.isFinite(Number(a[1])) ? Number(a[1]) : 0,
+    Number.isFinite(Number(a[2])) ? Number(a[2]) : 0
+  );
+}
+function decodeNativeBaseEdge(edge, parent, childItem) {
+  // Prime's base NetParent (subParentID 0) is the identity frame. Edge `pos`
+  // is stored in parent-item scale units, then expanded to displayed metres.
+  const parentScale = physicalScaleForItem(parent.item);
+  const childScale = physicalScaleForItem(childItem);
+  const edgePos = nativePosePosition(edge?.pos).multiplyScalar(parentScale);
+  const edgeRot = normalizedPoseQuaternion(edge?.rot);
+  const posePos = nativePosePosition(edge?.posePos).multiplyScalar(childScale);
+  const poseRot = normalizedPoseQuaternion(edge?.poseRot);
+  const displayedRot = edgeRot.multiply(poseRot.clone().invert()).normalize();
+  const baseDisplayPos = edgePos.sub(posePos.applyQuaternion(displayedRot));
+  const displayedPos = baseDisplayPos.multiplyScalar(stuckDrawRatioForItem(parent.item.itemID));
+  return { position: displayedPos, quaternion: displayedRot };
+}
+function encodeNativeBaseEdge(child, parent) {
+  // Inverse of Prime's displayPoseToEdge for the base NetParent frame.
+  const poseData = child.edgePose || {};
+  const posePos = Array.isArray(poseData.posePos) ? poseData.posePos : [0, 0, 0];
+  const poseRot = Array.isArray(poseData.poseRot) ? poseData.poseRot : [0, 0, 0, 1];
+  const childScale = physicalScaleForItem(child.item);
+  const parentScale = Math.max(0.0001, physicalScaleForItem(parent.item));
+  // Use the visible Three.js group transform, not a stale parallel state value.
+  const displayedPosition = child.group.position.clone();
+  const displayedRotation = child.group.quaternion.clone().normalize();
+  const drawRatio = stuckDrawRatioForItem(parent.item.itemID);
+  const anchorOffset = nativePosePosition(posePos).multiplyScalar(childScale).applyQuaternion(displayedRotation);
+  const edgePosition = displayedPosition.multiplyScalar(1 / drawRatio).add(anchorOffset).multiplyScalar(1 / parentScale);
+  const edgeRotation = displayedRotation.multiply(normalizedPoseQuaternion(poseRot)).normalize();
+  return {
+    subParentID: 0,
+    pos: [round(edgePosition.x), round(edgePosition.y), round(edgePosition.z)],
+    rot: [round(edgeRotation.x), round(edgeRotation.y), round(edgeRotation.z), round(edgeRotation.w)],
+    posePos: posePos.map(round),
+    poseRot: normalizedPoseQuaternion(poseRot).toArray().map(round),
+    wasDynamicStuck: Boolean(poseData.wasDynamicStuck)
+  };
+}
 function serializeNode(node) {
   const item = structuredClone(node.item);
   item.children = [];
-  item.stuckChildren = node.children.map((child) => {
-    const nested = serializeNode(child);
-    const p = child.position;
-    const q = child.quaternion;
-    return {
-      item: nested,
-      subParentID: 0,
-      pos: [round(p.x), round(p.y), round(p.z)],
-      rot: [round(q.x), round(q.y), round(q.z), round(q.w)],
-      posePos: [0, 0, 0],
-      poseRot: [0, 0, 0, 1],
-      wasDynamicStuck: false
-    };
-  });
+  item.stuckChildren = node.children.map((child) => ({
+    item: serializeNode(child),
+    ...encodeNativeBaseEdge(child, node)
+  }));
   return item;
 }
 function round(n) { return Math.round(n * 10000) / 10000; }
@@ -1278,13 +1400,34 @@ function importBuild(raw) {
   disposeBuild();
   function walk(item, parent = null, edge = null) {
     if (!item || !validItemID(item.itemID)) return null;
-    const pos = edge?.pos || (!parent ? [0, 1.1, 0] : [0.3, 0.1, 0]);
-    const node = createNode(structuredClone(item), parent, pos);
-    if (edge?.rot?.length === 4) node.quaternion.set(...edge.rot);
+    let position = parent ? new THREE.Vector3(0.3, 0.1, 0) : new THREE.Vector3(0, 1.1, 0);
+    let rotation = new THREE.Quaternion();
+    if (parent && edge) {
+      const subParentID = Math.round(Number(edge.subParentID) || 0);
+      if (subParentID === 0) {
+        const decoded = decodeNativeBaseEdge(edge, parent, item);
+        position.copy(decoded.position);
+        rotation.copy(decoded.quaternion);
+      } else {
+        // This builder authors base-frame attachments. Special NetParent frames
+        // are not reconstructed here, so show their stored values and flag them.
+        position.copy(nativePosePosition(edge.pos));
+        rotation.copy(normalizedPoseQuaternion(edge.rot));
+        setStatus(`Imported ${item.itemID} with special attachment frame ${subParentID}; placement may be approximate in this builder.`);
+      }
+    }
+    const node = createNode(structuredClone(item), parent, position.toArray());
+    node.quaternion.copy(rotation);
+    node.edgePose = edge ? {
+      subParentID: Math.round(Number(edge.subParentID) || 0),
+      posePos: Array.isArray(edge.posePos) ? edge.posePos.slice(0, 3) : [0, 0, 0],
+      poseRot: Array.isArray(edge.poseRot) ? edge.poseRot.slice(0, 4) : [0, 0, 0, 1],
+      wasDynamicStuck: Boolean(edge.wasDynamicStuck)
+    } : { subParentID: 0, posePos: [0, 0, 0], poseRot: [0, 0, 0, 1], wasDynamicStuck: false };
     node.item.stuckChildren = [];
     node.item.children = [];
-    for (const childEdge of (item.stuckChildren || [])) if (childEdge?.item) walk(childEdge.item, node, childEdge);
     syncMesh(node);
+    for (const childEdge of (item.stuckChildren || [])) if (childEdge?.item) walk(childEdge.item, node, childEdge);
     return node;
   }
   const first = walk(root);
@@ -1506,7 +1649,7 @@ function runAction(action) {
   } else if (action.startsWith("scale:")) {
     if (!gizmoEnabled) { setStatus("Gizmo off: pick up the item and use both controller grips to resize it."); return; }
     if (!selected) { setStatus("Select an item first."); return; }
-    selected.item.scaleModifier = Math.max(-127, Math.min(127, Number(selected.item.scaleModifier || 0) + Number(action.split(":")[1])));
+    selected.item.scaleModifier = Math.max(-128, Math.min(127, Number(selected.item.scaleModifier || 0) + Number(action.split(":")[1])));
     syncMesh(selected);
     setStatus(`Scale modifier: ${selected.item.scaleModifier}`);
   }
@@ -1819,7 +1962,7 @@ function tryBeginTwoHandScale() {
     const startWorldPosition = node.group.getWorldPosition(new THREE.Vector3());
     const startMidpoint = leftPosition.clone().add(rightPosition).multiplyScalar(0.5);
     const startModifier = Number(node.item.scaleModifier || 0);
-    const startScale = Math.max(1 / 128, 1 + startModifier / 128);
+    const startScale = physicalScaleForItem(node.item);
     twoHandScaleState = {
       kind: "item",
       node,
@@ -1863,7 +2006,7 @@ function finishTwoHandScale() {
   if (!twoHandScaleState) return;
   const finishedKind = twoHandScaleState.kind;
   const finishedScale = finishedKind === "item"
-    ? Math.max(1 / 128, 1 + Number(twoHandScaleState.node?.item?.scaleModifier || 0) / 128)
+    ? physicalScaleForItem(twoHandScaleState.node?.item)
     : 1 / Math.max(0.0001, Math.abs(worldGroup.scale.x));
   twoHandScaleState = null;
   drawScaleFeedback(finishedKind === "item" ? "ITEM" : "PLAYER", finishedScale, false);
@@ -1935,9 +2078,10 @@ function updateTwoHandScale() {
   }
 
   if (!nodes.includes(state.node)) return false;
-  const desiredScale = THREE.MathUtils.clamp(state.startScale * scaleFactor, 1 / 128, 255 / 128);
+  const scaleRange = scaleRangeForItem(state.node.item.itemID);
+  const desiredScale = THREE.MathUtils.clamp(state.startScale * scaleFactor, scaleRange.min, scaleRange.max);
   drawScaleFeedback("ITEM", desiredScale, true);
-  const modifier = THREE.MathUtils.clamp(Math.round((desiredScale - 1) * 128), -127, 127);
+  const modifier = scaleModifierForPhysicalScale(desiredScale, state.node.item.itemID);
   if (modifier !== Number(state.node.item.scaleModifier || 0)) {
     state.node.item.scaleModifier = modifier;
     syncMesh(state.node);
@@ -2298,7 +2442,9 @@ function updateHandTracking(xrFrame) {
       panel.scale.setScalar(0.32);
       panel.visible = menuVisible;
       panelReady = true;
-      if (!leftHandGrip) statusText = "LEFT MENU · PRESS X ON LEFT CONTROLLER TO HIDE/SHOW.";
+      if (!leftHandGrip && statusText !== "LEFT MENU · PRESS X ON LEFT CONTROLLER TO HIDE/SHOW.") {
+        setStatus("LEFT MENU · PRESS X ON LEFT CONTROLLER TO HIDE/SHOW.");
+      }
       if (!wasVisible && menuVisible) redrawPanel();
       updateMenuToggleFromPanel();
     }

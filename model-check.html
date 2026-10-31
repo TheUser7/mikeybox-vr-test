@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#101820">
-  <title>Goop VR Builder — 3D Model Check v0.9.4</title>
+  <title>Goop VR Builder — 3D Model Check v0.9.6</title>
   <script type="importmap">
     {
       "imports": {
@@ -97,7 +97,7 @@ async function runChecks() {
       state.textContent = `FAILED · ${String(error?.message || error).slice(0,220)}`;
     }
   }
-  $("summary").textContent = `${ok}/${MODELS.length} models passed fetch + GLB parse.\nIf a file shows HTTP 404, check that it is in the repository-root models/ folder and was included in the GitHub Pages deployment. If all six pass here but the VR builder still shows placeholders, refresh the builder page and confirm its version badge says ALPHA v0.9.4.`;
+  $("summary").textContent = `${ok}/${MODELS.length} models passed fetch + GLB parse.\nIf a file shows HTTP 404, check that it is in the repository-root models/ folder and was included in the GitHub Pages deployment. If all six pass here but the VR builder still shows placeholders, refresh the builder page and confirm its version badge says ALPHA v0.9.6.`;
 }
 $("run").addEventListener("click", runChecks);
 runChecks();
