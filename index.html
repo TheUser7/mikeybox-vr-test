@@ -4,9 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <meta name="theme-color" content="#101820">
-  <title>Goop VR Builder — Alpha v0.9.1</title>
-  <meta name="app-version" content="0.9.1">
+  <title>Goop VR Builder — Alpha v0.9.3</title>
+  <meta name="app-version" content="0.9.3">
   <link rel="stylesheet" href="./style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"
+      }
+    }
+  </script>
 </head>
 <body>
   <section id="landing">
@@ -14,8 +21,8 @@
       <div class="eyebrow">QUEST 3 · WEBXR</div>
       <div class="version-row" aria-label="Site version">
         <span class="version-label">SITE VERSION</span>
-        <strong id="siteVersion">ALPHA v0.9.1</strong>
-        <span class="build-label">BUILD 2026.10.31-r3</span>
+        <strong id="siteVersion">ALPHA v0.9.3</strong>
+        <span class="build-label">BUILD 2026.10.31-r5</span>
       </div>
       <h1>GOOP VR BUILDER</h1>
       <p>Build and edit entirely inside immersive VR. The menu follows your left wrist and toggles with X on the left controller. Press B on the right controller to switch between full gizmo editing and object-only pickup/resize mode.</p>
@@ -27,7 +34,7 @@
         <span>Hands: point with your right index finger and pinch to press a menu button</span>
         <span>Hands: select a part to show its XYZ gizmo; pinch a double-ended arrow and push/pull to move on that axis</span>
         <span>Hands: pinch the wide colored ring and turn your hand around it to rotate without moving the part's center</span>
-        <span>Items: open ITEMS to browse the built-in categories, choose a named item, then tap NEW ROOT or ADD PART</span>
+        <span>Items: open ITEMS to browse the catalog. Boombox, Company Ration, Crate, Rubber Ducky, Mega Flashlight and Hoverpad use uploaded GLB models; other entries use placeholders.</span>
         <span>Snap Settings: toggle position/rotation snapping and enter custom grid distance and angle steps</span>
         <span>Hands: pinch a part itself to freely grab and move it</span>
         <span>Controllers: left thumbstick walks/strafe the player relative to headset direction; right thumbstick left/right snap-turns the player by 30°</span>

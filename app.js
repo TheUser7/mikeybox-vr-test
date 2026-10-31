@@ -1,8 +1,9 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js";
+import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
-const SITE_VERSION = "ALPHA v0.9.1";
-const SITE_BUILD_ID = "2026.10.31-r3";
+const SITE_VERSION = "ALPHA v0.9.3";
+const SITE_BUILD_ID = "2026.10.31-r5";
 const UI_PANEL_FONT_SCALE = 1.28;
 const UI_BUTTON_FONT_SCALE = 1.22;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -12,6 +13,35 @@ const ITEM_CATEGORIES = ["Loot", "Toys", "Construction", "Bags & Gadgets", "Fish
 const ITEM_PAGE_SIZE = 8;
 const UNSUPPORTED_ITEM_ID_PATTERN = /weapon|gun|pistol|rifle|shotgun|grenade|bomb|blade|sword|knife|knives|axe|arrow|ammo|bullet|cannon|launcher|spear|bow|crossbow|mine|explosive|rocket|dart|shank|machete|katana|harpoon|flamethrower|blaster|missile|blood|corpse|dead|gore|skull|blast|laser|joust|lance|murder|zombie|radiation|radioactive|uranium|toxic|poison/i;
 const ITEM_CATALOG_BY_ID = new Map(ITEM_CATALOG.map((entry) => [entry.id, entry]));
+
+// User-supplied, authorized GLB assets already uploaded to the repository's
+// /models folder. Safe props are mapped here; weapon-like assets are not loaded.
+const MODEL_ASSETS = new Map([
+  ["item_boombox", "animal_company_-_boombox.glb"],
+  ["item_company_ration", "animal_company_-_company_ration.glb"],
+  ["item_crate", "animal_company_-_crate.glb"],
+  ["item_rubberducky", "animal_company_-_rubberducky.glb"],
+  ["item_flashlight_mega", "animal_company_-_flashlight_mega.glb"],
+  ["item_hoverpad", "animal_company_-_hover_pad.glb"]
+]);
+const gltfLoader = new GLTFLoader();
+const gltfAssetPromises = new Map();
+function getModelUrl(itemID) {
+  const filename = MODEL_ASSETS.get(itemID);
+  return filename ? new URL(`./models/${filename}`, import.meta.url).href : null;
+}
+function loadModelTemplate(itemID) {
+  const url = getModelUrl(itemID);
+  if (!url) return Promise.resolve(null);
+  if (!gltfAssetPromises.has(itemID)) {
+    const promise = gltfLoader.loadAsync(url).then((gltf) => gltf.scene).catch((error) => {
+      gltfAssetPromises.delete(itemID);
+      throw error;
+    });
+    gltfAssetPromises.set(itemID, promise);
+  }
+  return gltfAssetPromises.get(itemID);
+}
 
 const $ = (id) => document.getElementById(id);
 const scene = new THREE.Scene();
@@ -664,7 +694,8 @@ function drawItemCatalogPanel() {
   visible.forEach((entry, index) => {
     const col = index % 2;
     const row = Math.floor(index / 2);
-    addButton(entry.name, `catalogPick:${entry.id}`, columns[col], rows[row], 0.78, 0.15, entry.id === pendingItemID ? "active" : "normal");
+    const label = MODEL_ASSETS.has(entry.id) ? `${entry.name} · 3D` : entry.name;
+    addButton(label, `catalogPick:${entry.id}`, columns[col], rows[row], 0.78, 0.15, entry.id === pendingItemID ? "active" : "normal");
   });
   if (visible.length === 0) addPanelText("NO ITEMS IN THIS CATEGORY", 0, -0.25, 1.45, 0.10, 22, "#f0c6a5");
 
@@ -994,16 +1025,13 @@ function handleSnapValueAction(action) {
 }
 function nodeGroup(node) { return node.parent ? node.parent.group : rootGroup; }
 function syncMesh(node) {
-  node.group.position.copy(node.position);
-  node.group.quaternion.copy(node.quaternion);
   node.mesh.scale.setScalar(Math.max(0.01, 1 + Number(node.item.scaleModifier || 0) / 128));
   if (node === selected) updateTransformGizmo();
 }
 function makeItemPreviewGeometry(id) {
   const category = ITEM_CATALOG_BY_ID.get(id)?.category || "Loot";
-  // These are category-based preview shapes, not ripped game meshes. They make
-  // different item families easier to distinguish while keeping the exported
-  // itemID exact for the target editor/game format.
+  // Lightweight placeholder geometry remains visible while a GLB is loading
+  // or when this item does not yet have a supplied model.
   if (category === "Toys") return new THREE.IcosahedronGeometry(0.18, 1);
   if (category === "Construction") return new THREE.BoxGeometry(0.34, 0.23, 0.34);
   if (category === "Bags & Gadgets") return new THREE.BoxGeometry(0.24, 0.34, 0.17);
@@ -1015,31 +1043,127 @@ function makeItemPreviewGeometry(id) {
   if (category === "Consumables") return new THREE.CylinderGeometry(0.115, 0.13, 0.30, 20);
   return new THREE.DodecahedronGeometry(0.18, 0);
 }
+function setProxyBounds(node, box = null) {
+  const oldGeometry = node.mesh.geometry;
+  let center = new THREE.Vector3(0, 0.18, 0);
+  let radius = 0.28;
+  if (box && !box.isEmpty()) {
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    center.copy(sphere.center);
+    radius = Math.max(0.12, sphere.radius * 1.12);
+  }
+  const proxyGeometry = new THREE.SphereGeometry(radius, 16, 12);
+  proxyGeometry.translate(center.x, center.y, center.z);
+  node.mesh.geometry = proxyGeometry;
+  oldGeometry?.dispose();
+}
+function clearLoadedModel(node) {
+  node.modelRequestSerial = (node.modelRequestSerial || 0) + 1;
+  if (node.modelRoot) {
+    node.mesh.remove(node.modelRoot);
+    node.modelRoot = null;
+  }
+  node.hasModel = false;
+  if (node.previewMesh) node.previewMesh.visible = true;
+  if (node.edgeMesh) node.edgeMesh.visible = true;
+  setProxyBounds(node);
+  if (node.labelSprite) node.labelSprite.position.y = 0.28;
+}
+async function loadModelForNode(node, itemID) {
+  if (!MODEL_ASSETS.has(itemID)) return;
+  const requestSerial = (node.modelRequestSerial || 0) + 1;
+  node.modelRequestSerial = requestSerial;
+  const filename = MODEL_ASSETS.get(itemID);
+  try {
+    const template = await loadModelTemplate(itemID);
+    if (!template || !nodes.includes(node) || node.item.itemID !== itemID || node.modelRequestSerial !== requestSerial) return;
+
+    // Clone the scene graph for each placed item. Geometry/material resources
+    // are shared from the cached GLB template to keep Quest memory use modest.
+    const modelRoot = template.clone(true);
+    modelRoot.updateMatrixWorld(true);
+    let bounds = new THREE.Box3().setFromObject(modelRoot);
+    if (bounds.isEmpty()) throw new Error("The GLB contains no visible geometry.");
+
+    const rawSize = bounds.getSize(new THREE.Vector3());
+    const longestSide = Math.max(rawSize.x, rawSize.y, rawSize.z);
+    if (!Number.isFinite(longestSide) || longestSide < 0.00001) throw new Error("The GLB model has invalid dimensions.");
+
+    // Normalize every source model to a consistent preview footprint. Preserve
+    // proportions, center X/Z, and place its lowest point on the object's origin.
+    const normalizeFactor = 0.44 / longestSide;
+    modelRoot.scale.multiplyScalar(normalizeFactor);
+    modelRoot.updateMatrixWorld(true);
+    bounds = new THREE.Box3().setFromObject(modelRoot);
+    const center = bounds.getCenter(new THREE.Vector3());
+    modelRoot.position.x -= center.x;
+    modelRoot.position.z -= center.z;
+    modelRoot.position.y -= bounds.min.y;
+    modelRoot.updateMatrixWorld(true);
+    bounds = new THREE.Box3().setFromObject(modelRoot);
+
+    modelRoot.traverse((object) => {
+      if (object.isMesh) {
+        object.castShadow = true;
+        object.receiveShadow = true;
+        object.frustumCulled = true;
+      }
+    });
+
+    node.mesh.add(modelRoot);
+    node.modelRoot = modelRoot;
+    node.hasModel = true;
+    if (node.previewMesh) node.previewMesh.visible = false;
+    if (node.edgeMesh) node.edgeMesh.visible = false;
+    setProxyBounds(node, bounds);
+    if (node.labelSprite) node.labelSprite.position.y = Math.max(0.32, bounds.max.y + 0.10);
+    syncMesh(node);
+    setStatus(`${getItemDisplayName(itemID)} 3D model loaded.`);
+  } catch (error) {
+    console.warn(`Could not load model for ${itemID} from ./models/${filename}`, error);
+    if (nodes.includes(node) && node.item.itemID === itemID && node.modelRequestSerial === requestSerial) {
+      setStatus(`Couldn't load ${getItemDisplayName(itemID)}. Placeholder kept; check models/${filename}.`);
+    }
+  }
+}
 function makeVisual(node) {
-  const geo = makeItemPreviewGeometry(node.item.itemID);
-  const mat = new THREE.MeshBasicMaterial({ color: colorFor(node.item.itemID) });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.userData.node = node;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x10202b }));
-  mesh.add(edges);
+  // The invisible proxy remains the stable selection/grab target. The visible
+  // placeholder or loaded GLB is a child, so existing controller interactions
+  // and item scaleModifier behavior continue to work unchanged.
+  const proxy = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, colorWrite: false, depthWrite: false, depthTest: false })
+  );
+  proxy.userData.node = node;
+  proxy.name = `${node.item.itemID}-grab-proxy`;
+  const previewGeometry = makeItemPreviewGeometry(node.item.itemID);
+  const previewMaterial = new THREE.MeshStandardMaterial({ color: colorFor(node.item.itemID), roughness: 0.72, metalness: 0.02 });
+  const previewMesh = new THREE.Mesh(previewGeometry, previewMaterial);
+  previewMesh.userData.node = node;
+  previewMesh.castShadow = true;
+  previewMesh.receiveShadow = true;
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(previewGeometry), new THREE.LineBasicMaterial({ color: 0x10202b }));
+  previewMesh.add(edges);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeCanvasTexture(getItemDisplayName(node.item.itemID), { width: 512, height: 96, fontSize: 38 }), transparent: false }));
   sprite.scale.set(0.98, 0.18, 1);
-  sprite.position.y = 0.27;
-  mesh.add(sprite);
-  node.mesh = mesh;
+  sprite.position.y = 0.28;
+  node.mesh = proxy;
+  node.previewMesh = previewMesh;
   node.edgeMesh = edges;
   node.labelSprite = sprite;
+  node.group.add(proxy);
+  proxy.add(previewMesh, sprite);
   nodeGroup(node).add(node.group);
-  node.group.add(mesh);
   syncMesh(node);
+  loadModelForNode(node, node.item.itemID);
 }
 function createNode(item, parent = null, position = null) {
   const node = {
     uid: nextId++, item, parent, children: [],
     position: position ? new THREE.Vector3(...position) : new THREE.Vector3(parent ? 0.35 : 0, parent ? 0.15 : 1.1, 0),
-    quaternion: new THREE.Quaternion(), group: new THREE.Group(), mesh: null, labelSprite: null
+    quaternion: new THREE.Quaternion(), group: new THREE.Group(), mesh: null,
+    previewMesh: null, edgeMesh: null, labelSprite: null, modelRoot: null,
+    modelRequestSerial: 0, hasModel: false
   };
   node.group.name = item.itemID;
   (parent ? parent.group : rootGroup).add(node.group);
@@ -1049,20 +1173,22 @@ function createNode(item, parent = null, position = null) {
   return node;
 }
 function refreshNodeID(node, id) {
+  clearLoadedModel(node);
   node.item.itemID = id;
   node.group.name = id;
-  node.mesh.material.color.copy(colorFor(id));
-  const oldGeometry = node.mesh.geometry;
-  node.mesh.geometry = makeItemPreviewGeometry(id);
+  node.previewMesh.material.color.copy(colorFor(id));
+  const oldGeometry = node.previewMesh.geometry;
+  node.previewMesh.geometry = makeItemPreviewGeometry(id);
   oldGeometry?.dispose();
   if (node.edgeMesh) {
     const oldEdgeGeometry = node.edgeMesh.geometry;
-    node.edgeMesh.geometry = new THREE.EdgesGeometry(node.mesh.geometry);
+    node.edgeMesh.geometry = new THREE.EdgesGeometry(node.previewMesh.geometry);
     oldEdgeGeometry?.dispose();
   }
   const oldMap = node.labelSprite.material.map;
   node.labelSprite.material.map = makeCanvasTexture(getItemDisplayName(id), { width: 512, height: 96, fontSize: 38 });
   oldMap?.dispose();
+  loadModelForNode(node, id);
 }
 function serializeNode(node) {
   const item = structuredClone(node.item);
@@ -1088,6 +1214,8 @@ function disposeBuild() {
   for (const n of nodes) {
     n.mesh?.geometry?.dispose();
     n.mesh?.material?.dispose();
+    n.previewMesh?.geometry?.dispose();
+    n.previewMesh?.material?.dispose();
     n.edgeMesh?.geometry?.dispose();
     n.edgeMesh?.material?.dispose();
     if (n.labelSprite?.material?.map) n.labelSprite.material.map.dispose();
@@ -1264,7 +1392,10 @@ function runAction(action) {
     }
     pendingItemID = entry.id;
     itemCatalogOpen = false;
-    setStatus(`Next item: ${entry.name}. Use NEW ROOT or ADD PART to place it.`);
+    const hasModel = MODEL_ASSETS.has(entry.id);
+    setStatus(hasModel
+      ? `Next item: ${entry.name}. Its uploaded 3D model will load when placed.`
+      : `Next item: ${entry.name}. A placeholder preview will be used until a model is added.`);
     return;
   }
   if (action === "catalogCustomID") {
