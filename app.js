@@ -36,14 +36,15 @@ const sun = new THREE.DirectionalLight(0xffffff, 2.0);
 sun.position.set(4, 8, 5);
 worldGroup.add(sun);
 const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(100, 100),
+  new THREE.PlaneGeometry(32, 32),
   new THREE.MeshBasicMaterial({ color: 0x657a83 })
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.03;
 environmentGroup.add(floor);
-// A larger half-meter floor grid makes changes in world scale easy to see.
-const grid = new THREE.GridHelper(48, 96, 0x526a73, 0x71858c);
+// A precise 32 × 32 meter floor with one-meter cells (32 divisions).
+// The floor plane and grid share the same bounds: -16 to +16 on X and Z.
+const grid = new THREE.GridHelper(32, 32, 0x526a73, 0x71858c);
 grid.position.y = -0.015;
 environmentGroup.add(grid);
 

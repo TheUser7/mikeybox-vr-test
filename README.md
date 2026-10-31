@@ -63,6 +63,6 @@ The transform gizmo is counter-scaled so it remains a consistent size in the hea
 
 ## More obvious world/background scaling
 
-When both controller side grips are held with no item actively grabbed, the entire workspace scales around the viewer. This includes the sky dome, enlarged floor, half-meter floor grid, concentric floor measurement rings, and the three distant grid walls. These environmental references are all inside the same workspace transform as the build, so their spacing and distance change with the world scale.
+When both controller side grips are held with no item actively grabbed, the entire workspace scales around the viewer. This includes the sky dome, enlarged floor, 32 × 32 meter floor grid with one-meter cells, concentric floor measurement rings, and the three distant grid walls. These environmental references are all inside the same workspace transform as the build, so their spacing and distance change with the world scale.
 
 A camera-facing scale readout appears during the gesture and briefly after release. It shows `WORLD + BACKGROUND SCALE` with the current multiplier and a progress bar. When scaling an actively held item, the readout changes to `HELD ITEM SCALE` instead. The readout stays a fixed size and does not itself scale with the environment.
