@@ -47,7 +47,22 @@ let nextId = 1;
 let pendingItemID = "item_crate";
 let keyboardDraft = "item_crate";
 let keyboardOpen = false;
-let statusText = "Enter VR. Select a part, then pinch its XYZ arrows or rotation circles.";
+let snapSettingsOpen = false;
+let snapValueKeyboardOpen = false;
+let snapValueTarget = "position";
+let snapValueDraft = "0.1";
+const snapConfig = {
+  positionEnabled: false,
+  rotationEnabled: false,
+  positionStep: 0.1,       // world units (meters)
+  rotationStepDegrees: 15 // degrees
+};
+let statusText = "Enter VR. Select a part, then use its XYZ arrows and rotation circles.";
+let audioContext = null;
+let audioLoadPromise = null;
+const audioBuffers = Object.create(null);
+let lastHoveredButton = null;
+let handHoveringAvailable = false;
 let panelReady = false;
 let leftHandGrip = null;
 let leftHandMenuActive = false;
@@ -275,7 +290,41 @@ function drawMainPanel() {
   addPanelText("CIRCLES · TURN ROTATION X Y Z", 0, -0.34, 1.50, 0.09, 22, "#a9c2cf");
   addButton("SCALE −", "scale:-1", -0.38, -0.57, 0.48, 0.15);
   addButton("SCALE +", "scale:1", 0.15, -0.57, 0.48, 0.15);
-  addPanelText("PINCH A HANDLE · DRAG IT · RELEASE", 0, -0.78, 1.55, 0.07, 18, "#91a6b3");
+  addButton("SNAP SETTINGS", "snapSettings", 0, -0.80, 0.92, 0.13, "active");
+}
+function drawSnapSettingsPanel() {
+  clearPanel();
+  drawPanelBackground("SNAP SETTINGS");
+  addPanelText("POSITION SNAP", 0, 0.52, 1.40, 0.09, 28, "#ffcf8a");
+  addButton(snapConfig.positionEnabled ? "POSITION: ON" : "POSITION: OFF", "snapPositionToggle", 0, 0.36, 0.90, 0.13, snapConfig.positionEnabled ? "active" : "muted");
+  addPanelText(`GRID STEP · ${snapConfig.positionStep.toFixed(3)} m`, 0, 0.16, 1.50, 0.09, 26);
+  addButton("STEP −", "positionStepDown", -0.49, -0.01, 0.38, 0.13);
+  addButton("CUSTOM", "positionStepCustom", 0, -0.01, 0.38, 0.13, "active");
+  addButton("STEP +", "positionStepUp", 0.49, -0.01, 0.38, 0.13);
+
+  addPanelText("ROTATION SNAP", 0, -0.22, 1.40, 0.09, 28, "#9ecbff");
+  addButton(snapConfig.rotationEnabled ? "ROTATION: ON" : "ROTATION: OFF", "snapRotationToggle", 0, -0.37, 0.90, 0.13, snapConfig.rotationEnabled ? "active" : "muted");
+  addPanelText(`ANGLE STEP · ${snapConfig.rotationStepDegrees.toFixed(1)}°`, 0, -0.57, 1.50, 0.09, 25);
+  addButton("ANGLE −", "rotationStepDown", -0.49, -0.71, 0.38, 0.13);
+  addButton("CUSTOM", "rotationStepCustom", 0, -0.71, 0.38, 0.13, "active");
+  addButton("ANGLE +", "rotationStepUp", 0.49, -0.71, 0.38, 0.13);
+  addButton("BACK", "snapBack", 0, -0.89, 0.56, 0.11, "muted");
+}
+function drawSnapValueKeyboard() {
+  clearPanel();
+  drawPanelBackground(snapValueTarget === "position" ? "CUSTOM GRID STEP" : "CUSTOM ANGLE STEP");
+  const suffix = snapValueTarget === "position" ? "m" : "°";
+  addPanelText(`${snapValueDraft || "0"} ${suffix}`, 0, 0.51, 1.50, 0.12, 38, "#f8df9a");
+  const rows = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]];
+  rows.forEach((row, r) => row.forEach((digit, c) => {
+    addButton(digit, `snapKey:${digit}`, (c - 1) * 0.48, 0.25 - r * 0.20, 0.38, 0.15);
+  }));
+  addButton(".", "snapKey:.", -0.48, -0.39, 0.38, 0.15);
+  addButton("0", "snapKey:0", 0, -0.39, 0.38, 0.15);
+  addButton("⌫", "snapKeyBack", 0.48, -0.39, 0.38, 0.15, "muted");
+  addButton("CLEAR", "snapKeyClear", -0.43, -0.67, 0.42, 0.14, "muted");
+  addButton("CANCEL", "snapKeyCancel", 0, -0.67, 0.42, 0.14, "danger");
+  addButton("DONE", "snapKeyDone", 0.43, -0.67, 0.42, 0.14, "good");
 }
 function drawKeyboardPanel() {
   clearPanel();
@@ -299,6 +348,8 @@ function drawKeyboardPanel() {
 function redrawPanel() {
   if (!panelReady) return;
   if (keyboardOpen) drawKeyboardPanel();
+  else if (snapValueKeyboardOpen) drawSnapValueKeyboard();
+  else if (snapSettingsOpen) drawSnapSettingsPanel();
   else drawMainPanel();
 }
 function setStatus(text) {
@@ -308,6 +359,134 @@ function setStatus(text) {
   if (statusEl) statusEl.textContent = statusText;
 }
 
+const SFX_FILES = {
+  snapIn: "./assets/snapIn.ogg",
+  snapOut: "./assets/snapOut.ogg",
+  click: "./assets/UI_Click.ogg",
+  hover: "./assets/UI_Hover.ogg"
+};
+function warmAudio() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+  if (!audioContext) audioContext = new AudioCtx();
+  audioContext.resume().catch(() => {});
+  if (!audioLoadPromise) {
+    audioLoadPromise = Promise.all(Object.entries(SFX_FILES).map(async ([name, url]) => {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Could not load ${url}`);
+        const bytes = await response.arrayBuffer();
+        audioBuffers[name] = await audioContext.decodeAudioData(bytes);
+      } catch (error) {
+        console.warn(`Sound unavailable: ${name}`, error);
+      }
+    }));
+  }
+}
+function playSfx(name) {
+  if (!audioContext) return;
+  audioContext.resume().catch(() => {});
+  const start = () => {
+    const buffer = audioBuffers[name];
+    if (!buffer || !audioContext) return;
+    const source = audioContext.createBufferSource();
+    const gain = audioContext.createGain();
+    gain.gain.value = name === "hover" ? 0.7 : 0.85;
+    source.buffer = buffer;
+    source.connect(gain);
+    gain.connect(audioContext.destination);
+    source.start(0);
+  };
+  if (audioBuffers[name]) start();
+  else if (audioLoadPromise) audioLoadPromise.then(start);
+}
+function setHoveredButton(button) {
+  if (button !== lastHoveredButton) {
+    lastHoveredButton = button;
+    if (button) playSfx("hover");
+  }
+}
+function roundToStep(value, step) {
+  if (!Number.isFinite(step) || step <= 0) return value;
+  return Math.round(value / step) * step;
+}
+function snapWorldPosition(position) {
+  if (!snapConfig.positionEnabled) return position;
+  const step = snapConfig.positionStep;
+  return new THREE.Vector3(
+    roundToStep(position.x, step),
+    roundToStep(position.y, step),
+    roundToStep(position.z, step)
+  );
+}
+function snapLocalEuler(quaternion) {
+  if (!snapConfig.rotationEnabled) return quaternion;
+  const step = THREE.MathUtils.degToRad(snapConfig.rotationStepDegrees);
+  const euler = new THREE.Euler().setFromQuaternion(quaternion, "XYZ");
+  euler.set(roundToStep(euler.x, step), roundToStep(euler.y, step), roundToStep(euler.z, step), "XYZ");
+  return new THREE.Quaternion().setFromEuler(euler).normalize();
+}
+function setNodeWorldPosition(node, worldPosition) {
+  const parent = node.group.parent;
+  parent.updateWorldMatrix(true, false);
+  const inverseParent = parent.matrixWorld.clone().invert();
+  node.position.copy(worldPosition.clone().applyMatrix4(inverseParent));
+  syncMesh(node);
+}
+function applyObjectDrag(node, proxy, offset) {
+  const desiredWorld = new THREE.Matrix4().copy(proxy.matrixWorld).multiply(offset);
+  const worldPosition = new THREE.Vector3();
+  const worldQuaternion = new THREE.Quaternion();
+  const worldScale = new THREE.Vector3();
+  desiredWorld.decompose(worldPosition, worldQuaternion, worldScale);
+  const snappedWorldPosition = snapWorldPosition(worldPosition);
+  desiredWorld.compose(snappedWorldPosition, worldQuaternion, worldScale);
+
+  const parent = node.group.parent;
+  parent.updateWorldMatrix(true, false);
+  const local = parent.matrixWorld.clone().invert().multiply(desiredWorld);
+  local.decompose(node.position, node.quaternion, new THREE.Vector3());
+  if (snapConfig.rotationEnabled) node.quaternion.copy(snapLocalEuler(node.quaternion));
+  node.group.position.copy(node.position);
+  node.group.quaternion.copy(node.quaternion);
+  updateTransformGizmo();
+}
+function nodeWorldQuaternion(node) {
+  node.group.updateWorldMatrix(true, false);
+  return node.group.getWorldQuaternion(new THREE.Quaternion());
+}
+function snapValueOpen(target) {
+  snapValueTarget = target;
+  snapValueDraft = target === "position" ? String(snapConfig.positionStep) : String(snapConfig.rotationStepDegrees);
+  snapValueKeyboardOpen = true;
+  redrawPanel();
+}
+function handleSnapValueAction(action) {
+  if (action.startsWith("snapKey:")) {
+    const char = action.slice(8);
+    if (char !== "." || !snapValueDraft.includes(".")) {
+      if (snapValueDraft.length < 9) snapValueDraft += char;
+    }
+  } else if (action === "snapKeyBack") {
+    snapValueDraft = snapValueDraft.slice(0, -1);
+  } else if (action === "snapKeyClear") {
+    snapValueDraft = "";
+  } else if (action === "snapKeyCancel") {
+    snapValueKeyboardOpen = false;
+  } else if (action === "snapKeyDone") {
+    const value = Number(snapValueDraft);
+    const valid = Number.isFinite(value) && (snapValueTarget === "position" ? value >= 0.001 && value <= 10 : value >= 0.1 && value <= 180);
+    if (!valid) {
+      setStatus(snapValueTarget === "position" ? "Grid step must be between 0.001 and 10 meters." : "Angle step must be between 0.1° and 180°.");
+      return;
+    }
+    if (snapValueTarget === "position") snapConfig.positionStep = value;
+    else snapConfig.rotationStepDegrees = value;
+    snapValueKeyboardOpen = false;
+    setStatus(`Custom ${snapValueTarget} snap step saved: ${value}.`);
+  }
+  redrawPanel();
+}
 function nodeGroup(node) { return node.parent ? node.parent.group : rootGroup; }
 function syncMesh(node) {
   node.group.position.copy(node.position);
@@ -456,29 +635,78 @@ function handleKeyboardAction(action) {
 }
 function nudgeMove(index) {
   if (!selected) { setStatus("Select an item first."); return; }
-  const axis = Math.floor(index / 2);
-  const amount = index % 2 === 0 ? -0.05 : 0.05;
-  selected.position.setComponent(axis, selected.position.getComponent(axis) + amount);
-  syncMesh(selected);
+  const axisIndex = Math.floor(index / 2);
+  const amount = (index % 2 === 0 ? -1 : 1) * (snapConfig.positionEnabled ? snapConfig.positionStep : 0.05);
+  selected.group.updateWorldMatrix(true, false);
+  const worldPosition = selected.group.getWorldPosition(new THREE.Vector3());
+  worldPosition.setComponent(axisIndex, worldPosition.getComponent(axisIndex) + amount);
+  setNodeWorldPosition(selected, snapWorldPosition(worldPosition));
   redrawPanel();
 }
 function nudgeRotate(index) {
   if (!selected) { setStatus("Select an item first."); return; }
   const axisIndex = Math.floor(index / 2);
-  const angle = (index % 2 === 0 ? -1 : 1) * Math.PI / 12;
-  const axis = new THREE.Vector3(axisIndex === 0 ? 1 : 0, axisIndex === 1 ? 1 : 0, axisIndex === 2 ? 1 : 0);
-  selected.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, angle)).normalize();
+  const sign = index % 2 === 0 ? -1 : 1;
+  const requested = THREE.MathUtils.degToRad(snapConfig.rotationEnabled ? snapConfig.rotationStepDegrees : 15) * sign;
+  const angle = snapConfig.rotationEnabled ? roundToStep(requested, THREE.MathUtils.degToRad(snapConfig.rotationStepDegrees)) : requested;
+  const axis = worldAxes[axisIndex].clone();
+  selected.group.updateWorldMatrix(true, false);
+  const parent = selected.group.parent;
+  parent.updateWorldMatrix(true, false);
+  const parentQ = parent.getWorldQuaternion(new THREE.Quaternion());
+  const worldQ = selected.group.getWorldQuaternion(new THREE.Quaternion());
+  const desiredWorldQ = new THREE.Quaternion().setFromAxisAngle(axis, angle).multiply(worldQ).normalize();
+  selected.quaternion.copy(parentQ.invert().multiply(desiredWorldQ).normalize());
   syncMesh(selected);
   redrawPanel();
 }
 function runAction(action) {
+  playSfx("click");
   if (action.startsWith("key") || action.startsWith("key:")) { handleKeyboardAction(action); return; }
+  if (action.startsWith("snapKey") || action.startsWith("snapKey:")) { handleSnapValueAction(action); return; }
+  if (snapValueKeyboardOpen) return;
+  if (action === "snapSettings") {
+    snapSettingsOpen = true;
+    redrawPanel();
+    return;
+  }
+  if (action === "snapBack") {
+    snapSettingsOpen = false;
+    redrawPanel();
+    return;
+  }
+  if (action === "snapPositionToggle") {
+    snapConfig.positionEnabled = !snapConfig.positionEnabled;
+    playSfx(snapConfig.positionEnabled ? "snapIn" : "snapOut");
+    setStatus(`Position snapping ${snapConfig.positionEnabled ? "enabled" : "disabled"}.`);
+    return;
+  }
+  if (action === "snapRotationToggle") {
+    snapConfig.rotationEnabled = !snapConfig.rotationEnabled;
+    playSfx(snapConfig.rotationEnabled ? "snapIn" : "snapOut");
+    setStatus(`Rotation snapping ${snapConfig.rotationEnabled ? "enabled" : "disabled"}.`);
+    return;
+  }
+  if (action === "positionStepCustom") { snapValueOpen("position"); return; }
+  if (action === "rotationStepCustom") { snapValueOpen("rotation"); return; }
+  if (action === "positionStepDown" || action === "positionStepUp") {
+    const factor = action.endsWith("Down") ? 0.5 : 2;
+    snapConfig.positionStep = Math.max(0.001, Math.min(10, Number((snapConfig.positionStep * factor).toFixed(4))));
+    redrawPanel();
+    return;
+  }
+  if (action === "rotationStepDown" || action === "rotationStepUp") {
+    const factor = action.endsWith("Down") ? 0.5 : 2;
+    snapConfig.rotationStepDegrees = Math.max(0.1, Math.min(180, Number((snapConfig.rotationStepDegrees * factor).toFixed(2))));
+    redrawPanel();
+    return;
+  }
   if (keyboardOpen) return;
   if (action === "newRoot") {
     if (nodes.some((n) => !n.parent)) { setStatus("A root already exists. Import a different build to replace it."); return; }
     if (!validItemID(pendingItemID)) pendingItemID = "item_crate";
     choose(createNode(makeItem(pendingItemID), null, [0, 1.1, 0.45]));
-    setStatus("Root created. Pinch or point at it to select; its XYZ arrows and rotation circles appear.");
+    setStatus("Root created. Select it to show the XYZ movement and rotation gizmos.");
   } else if (action === "addPart") {
     if (!selected) { setStatus("Select the parent item before adding a part."); return; }
     const child = createNode(makeItem(pendingItemID), selected, [0.35, 0.15, 0]);
@@ -567,6 +795,7 @@ function makeGizmoDrag(node, handle, startPoint) {
   node.group.updateWorldMatrix(true, false);
   const parentWorldQuaternion = parent.getWorldQuaternion(new THREE.Quaternion());
   const inverseParentWorldQuaternion = parentWorldQuaternion.clone().invert();
+  const inverseParentWorldMatrix = parent.matrixWorld.clone().invert();
   const startWorldPosition = node.group.getWorldPosition(new THREE.Vector3());
   const startWorldQuaternion = node.group.getWorldQuaternion(new THREE.Quaternion());
   return {
@@ -578,6 +807,7 @@ function makeGizmoDrag(node, handle, startPoint) {
     startQuaternion: node.quaternion.clone(),
     startWorldQuaternion,
     inverseParentWorldQuaternion,
+    inverseParentWorldMatrix,
     startAngle: handle.kind === "rotate" ? ringAngle(startPoint, startWorldPosition, handle.axis) : 0
   };
 }
@@ -585,16 +815,22 @@ function applyGizmoDrag(drag, point) {
   if (!nodes.includes(drag.node)) return;
   if (drag.handle.kind === "translate") {
     const amount = point.clone().sub(drag.startPoint).dot(drag.axis);
-    const worldDelta = drag.axis.clone().multiplyScalar(amount);
-    const localDelta = worldDelta.applyQuaternion(drag.inverseParentWorldQuaternion);
-    drag.node.position.copy(drag.startPosition).add(localDelta);
+    let desiredWorldPosition = drag.center.clone().addScaledVector(drag.axis, amount);
+    desiredWorldPosition = snapWorldPosition(desiredWorldPosition);
+    drag.node.position.copy(desiredWorldPosition.applyMatrix4(drag.inverseParentWorldMatrix));
   } else {
     let angle = ringAngle(point, drag.center, drag.axis) - drag.startAngle;
     while (angle > Math.PI) angle -= Math.PI * 2;
     while (angle < -Math.PI) angle += Math.PI * 2;
+    if (snapConfig.rotationEnabled) {
+      angle = roundToStep(angle, THREE.MathUtils.degToRad(snapConfig.rotationStepDegrees));
+    }
     const worldRotation = new THREE.Quaternion().setFromAxisAngle(drag.axis, angle);
     const desiredWorldQuaternion = worldRotation.multiply(drag.startWorldQuaternion.clone()).normalize();
     drag.node.quaternion.copy(drag.inverseParentWorldQuaternion.clone().multiply(desiredWorldQuaternion)).normalize();
+    // Rotation is around the part's own origin: explicitly restore its original
+    // world-space center so rotating never makes the part translate or orbit.
+    drag.node.position.copy(drag.center.clone().applyMatrix4(drag.inverseParentWorldMatrix));
   }
   syncMesh(drag.node);
 }
@@ -603,6 +839,8 @@ function beginHandGizmoDrag(input, proxy, handle) {
   const drag = makeGizmoDrag(selected, handle, proxy.position);
   drag.proxy = proxy;
   handDragStates.set(input, drag);
+  const snapEnabled = handle.kind === "translate" ? snapConfig.positionEnabled : snapConfig.rotationEnabled;
+  if (snapEnabled) playSfx("snapOut");
   const label = handle.kind === "translate" ? "Move axis" : "Rotation ring";
   setStatus(`${label} grabbed. Drag along the handle, then release your pinch.`);
   return true;
@@ -664,6 +902,8 @@ function beginDrag(rayController, grip) {
     drag.grip = grip;
     drag.pointerOffset = gizmoHit.point.clone().sub(gripPosition);
     dragStates.set(rayController, drag);
+    const snapEnabled = drag.handle.kind === "translate" ? snapConfig.positionEnabled : snapConfig.rotationEnabled;
+    if (snapEnabled) playSfx("snapOut");
     setStatus(drag.handle.kind === "translate" ? "Moving on the selected XYZ axis." : "Turning the selected rotation ring.");
     return;
   }
@@ -685,6 +925,7 @@ function beginDrag(rayController, grip) {
   node.group.updateMatrixWorld(true);
   const offset = grip.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
   dragStates.set(rayController, { node, grip, offset });
+  if (snapConfig.positionEnabled || snapConfig.rotationEnabled) playSfx("snapOut");
   choose(node);
   setStatus(`Holding ${node.item.itemID}. Move your controller hand; release grip to place it.`);
 }
@@ -698,14 +939,7 @@ function updateDrags() {
       applyGizmoDrag(drag, gripPosition.add(drag.pointerOffset));
       continue;
     }
-    const desiredWorld = tempMatrix2.copy(drag.grip.matrixWorld).multiply(drag.offset);
-    const parent = node.group.parent;
-    parent.updateMatrixWorld(true);
-    const local = tempMatrix.copy(parent.matrixWorld).invert().multiply(desiredWorld);
-    local.decompose(node.position, node.quaternion, tempScale);
-    node.group.position.copy(node.position);
-    node.group.quaternion.copy(node.quaternion);
-    updateTransformGizmo();
+    applyObjectDrag(node, drag.grip, drag.offset);
   }
 }
 function attachPanelToLeftHand() {
@@ -759,7 +993,11 @@ function setupController(index) {
   controller.addEventListener("selectstart", () => onTrigger(controller));
   controller.addEventListener("squeezestart", () => beginDrag(controller, grip));
   controller.addEventListener("squeezeend", () => {
-    if (dragStates.delete(controller)) setStatus("Part placed.");
+    const drag = dragStates.get(controller);
+    if (dragStates.delete(controller)) {
+      if ((drag.mode === "gizmo" && (drag.handle.kind === "translate" ? snapConfig.positionEnabled : snapConfig.rotationEnabled)) || (drag.mode !== "gizmo" && (snapConfig.positionEnabled || snapConfig.rotationEnabled))) playSfx("snapIn");
+      setStatus("Part placed.");
+    }
   });
   controllerRecords.push(record);
 }
@@ -899,7 +1137,15 @@ function updateHandTracking(xrFrame) {
 
   const inputSources = Array.from(session.inputSources || []);
   const leftInput = inputSources.find((source) => source.handedness === "left" && source.hand);
+  const rightInput = inputSources.find((source) => source.handedness === "right" && source.hand);
   leftHandMenuActive = Boolean(leftInput);
+  handHoveringAvailable = Boolean(rightInput);
+  if (rightInput) {
+    const rightJoints = getHandJointMap(rightInput);
+    setHoveredButton(pickHandMenuButton(rightInput, xrFrame, referenceSpace, rightJoints));
+  } else {
+    setHoveredButton(null);
+  }
 
   // Put the editor panel just above the tracked left wrist and keep its face
   // turned toward the headset, like a wrist-mounted floating display.
@@ -982,6 +1228,7 @@ function updateHandTracking(xrFrame) {
           node.group.updateMatrixWorld(true);
           const offset = proxy.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
           handDragStates.set(input, { mode: "object", node, proxy, offset });
+          if (snapConfig.positionEnabled || snapConfig.rotationEnabled) playSfx("snapOut");
           choose(node);
           setStatus(`Pinching ${node.item.itemID}. Move your hand; release your fingers to place it.`);
         }
@@ -989,7 +1236,11 @@ function updateHandTracking(xrFrame) {
       }
     } else if (state.pinching && distance > 0.065) {
       state.pinching = false;
-      if (handDragStates.delete(input)) setStatus("Part placed.");
+      const endedDrag = handDragStates.get(input);
+      if (handDragStates.delete(input)) {
+        if ((endedDrag.mode === "gizmo" && (endedDrag.handle.kind === "translate" ? snapConfig.positionEnabled : snapConfig.rotationEnabled)) || (endedDrag.mode !== "gizmo" && (snapConfig.positionEnabled || snapConfig.rotationEnabled))) playSfx("snapIn");
+        setStatus("Part placed.");
+      }
       state.uiPressed = false;
     }
   }
@@ -1015,18 +1266,24 @@ function updateHandTracking(xrFrame) {
       applyGizmoDrag(drag, drag.proxy.position);
       continue;
     }
-    const desiredWorld = tempMatrix2.copy(drag.proxy.matrixWorld).multiply(drag.offset);
-    const parent = drag.node.group.parent;
-    parent.updateMatrixWorld(true);
-    const local = tempMatrix.copy(parent.matrixWorld).invert().multiply(desiredWorld);
-    local.decompose(drag.node.position, drag.node.quaternion, tempScale);
-    drag.node.group.position.copy(drag.node.position);
-    drag.node.group.quaternion.copy(drag.node.quaternion);
-    updateTransformGizmo();
+    applyObjectDrag(drag.node, drag.proxy, drag.offset);
   }
 }
 
+function updateControllerHover() {
+  if (handHoveringAvailable) return;
+  let hovered = null;
+  for (const record of controllerRecords) {
+    record.controller.updateMatrixWorld(true);
+    getControllerRay(record.controller);
+    const hits = raycaster.intersectObjects(uiButtons, false);
+    if (hits.length) { hovered = hits[0].object; break; }
+  }
+  setHoveredButton(hovered);
+}
+
 $("enterVR").addEventListener("click", async () => {
+  warmAudio();
   if (!navigator.xr) {
     setStatus("WebXR is unavailable. Open this HTTPS page in Quest Browser.");
     return;
@@ -1050,6 +1307,8 @@ $("enterVR").addEventListener("click", async () => {
     session.addEventListener("end", () => {
       panel.visible = false;
       panelReady = false;
+      snapSettingsOpen = false;
+      snapValueKeyboardOpen = false;
       transformGizmo.visible = false;
       leftHandGrip = null;
       leftHandMenuActive = false;
@@ -1093,6 +1352,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
   if (renderer.xr.isPresenting) {
     if (!leftHandMenuActive && !panel.visible) refreshLeftHandAttachment();
     updateHandTracking(xrFrame);
+    updateControllerHover();
   }
   updateDrags();
   renderer.render(scene, camera);

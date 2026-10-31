@@ -1,37 +1,52 @@
-# Goop VR Builder — Left-Hand Menu + Hand Tracking
+# Goop VR Builder — Rotation Lock, Custom Snap & SFX
 
-Experimental Quest Browser / WebXR prototype. The editor runs in immersive VR, with the control panel following the left wrist when hand tracking is available.
+Experimental Quest Browser / WebXR prototype. All editing happens inside immersive VR.
 
 ## Publish on GitHub Pages
 
 1. Extract this ZIP.
-2. Upload `index.html`, `style.css`, `app.js`, and `README.md` to the root of your GitHub repository, replacing the previous copies.
+2. Upload `index.html`, `style.css`, `app.js`, `README.md`, and the entire `assets` folder to the root of your GitHub repository, replacing previous copies.
 3. Commit the changes to the `main` branch.
 4. Keep GitHub Pages set to **Deploy from a branch → main → /(root)**.
 5. Wait for the Pages deployment to finish, then reload the site in Quest Browser. A full refresh may be needed to clear cached JavaScript.
 
-## Hand tracking controls
+## Transform behavior
 
-- Enable hand tracking on the Quest 3 and open the site in Quest Browser.
-- The editor menu follows the left wrist and faces toward the headset.
-- Point at a menu button with your right index finger and pinch to press it. (The menu can also be aimed at with a controller.)
-- Select a part to show its 3D transform gizmo.
-- Pinch either end of a double-ended arrow and push/pull your hand to move the part along X, Y, or Z.
-- Pinch a colored rotation circle and move your hand around the circle to rotate around that axis.
-- Pinch the part itself to freely grab and move it.
-- Open your fingers to release any handle or part.
-- A simple tracked hand skeleton is rendered while hand tracking is active.
+- Selecting a part displays world-axis XYZ movement arrows and X/Y/Z rotation rings.
+- Rotation rings change orientation around the part's own origin. The implementation explicitly preserves the selected part's world-space center while rotating, so the part should not translate/orbit as a side effect.
+- Position snapping is a configurable world-space grid, in meters.
+- Rotation snapping is a configurable angular increment, in degrees.
+- Open **SNAP SETTINGS** from the left-hand menu to independently toggle position and rotation snapping.
+- Use STEP − / STEP + and ANGLE − / ANGLE + for quick half/double changes, or CUSTOM to enter an exact numeric value with the in-VR keypad.
+- Position step range: 0.001–10 meters. Rotation step range: 0.1–180 degrees.
+- Snapping applies while moving with gizmos and while freely grabbing a part. Rotation snapping also applies to free-hand/controller object rotation.
+
+## Hand tracking
+
+- The editor menu follows the left wrist when hand tracking is available.
+- Point at menu buttons with the right index finger and pinch to activate them.
+- Pinch a part itself to freely move it.
+- Pinch a colored movement arrow to translate on that world axis.
+- Pinch a colored rotation ring to rotate on that axis without changing the part's world-space center.
+- Release your fingers to place the part.
 
 ## Controller fallback
 
 - Point and press trigger to select menu controls or objects.
-- Point at an XYZ arrow or rotation circle and hold grip/squeeze to manipulate that axis. Release to place it.
-- Hold grip near a part itself to freely grab and move it.
+- Point at an XYZ arrow or rotation ring and hold grip/squeeze to manipulate it.
+- Hold grip near a part itself to freely move it.
 
-## Builder features
+## Sound effects
 
-Create a root, add attached parts, delete parts, edit item IDs with the in-VR keyboard, precisely translate with XYZ arrows, rotate with circular handles, scale, import and export invention JSON.
+The four user-provided OGG files are in `assets/`:
+
+- `UI_Hover.ogg`: menu hover changes.
+- `UI_Click.ogg`: menu button activation.
+- `snapOut.ogg`: starting to move away from a snapped placement or disabling a snap mode.
+- `snapIn.ogg`: enabling a snap mode or releasing a snapped placement.
+
+Audio is loaded from the relative `assets/` folder after pressing **ENTER IMMERSIVE VR**. The browser must allow audio playback.
 
 ## Limitations
 
-This is an alpha prototype. It uses placeholder cubes, not Animal Company models. Item IDs must be entered manually. The generated JSON structure has not been verified in the live game. Hand tracking depends on the Quest Browser/WebXR hand-tracking feature being available and enabled. WebXR requires an HTTPS page. Quest-specific behavior still needs testing on the physical headset.
+This is an alpha prototype. It uses placeholder cubes, not Animal Company models. Item IDs must be entered manually. The generated JSON structure has not been verified in the live game. WebXR requires an HTTPS page. The rotation-center fix, snapping, audio playback, and hand/controller interactions still need testing on a physical Quest 3.
