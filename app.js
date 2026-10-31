@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
-const SITE_VERSION = "ALPHA v0.9.6";
-const SITE_BUILD_ID = "2026.10.31-r8";
+const SITE_VERSION = "ALPHA v0.9.7";
+const SITE_BUILD_ID = "2026.10.31-r9";
 const UI_PANEL_FONT_SCALE = 1.28;
 const UI_BUTTON_FONT_SCALE = 1.22;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -186,6 +186,10 @@ let pendingItemID = "item_crate";
 let itemCatalogOpen = false;
 let itemCatalogCategoryIndex = 0;
 let itemCatalogPage = 0;
+let hierarchyOpen = false;
+let hierarchyListMode = "parents";
+let hierarchyPage = 0;
+let catalogAddAsChild = false;
 let keyboardTarget = "selected";
 let keyboardDraft = "item_crate";
 let keyboardOpen = false;
@@ -676,7 +680,8 @@ function drawMainPanel() {
     addPanelText("PULL APART / PUSH TOGETHER TO RESIZE", 0, -0.51, 1.55, 0.08, 19, "#a9c2cf");
     addPanelText("PLAYER SCALING + GIZMO HANDLES DISABLED", 0, -0.65, 1.58, 0.07, 15, "#dfb18b");
   }
-  addButton("SNAP SETTINGS", "snapSettings", 0, -0.87, 0.92, 0.11, "active");
+  addButton("HIERARCHY", "openHierarchy", -0.43, -0.86, 0.68, 0.11, "active");
+  addButton("SNAP SETTINGS", "snapSettings", 0.43, -0.86, 0.68, 0.11, "active");
 }
 function getItemDisplayName(id) {
   return ITEM_CATALOG_BY_ID.get(id)?.name || String(id || "Unknown item").replace(/^item_/, "").replace(/_/g, " ");
@@ -734,6 +739,45 @@ function drawItemCatalogPanel() {
   addButton("NEXT", "catalogPageNext", 0.49, -0.72, 0.38, 0.12, "muted");
   addButton("CUSTOM ID", "catalogCustomID", -0.40, -0.90, 0.68, 0.11, "active");
   addButton("BACK", "catalogBack", 0.40, -0.90, 0.68, 0.11, "muted");
+}
+function openHierarchy(mode = "parents") {
+  hierarchyOpen = true;
+  hierarchyListMode = mode;
+  hierarchyPage = 0;
+  itemCatalogOpen = false;
+  snapSettingsOpen = false;
+  keyboardOpen = false;
+  snapValueKeyboardOpen = false;
+  redrawPanel();
+}
+function getHierarchyEntries() {
+  if (hierarchyListMode === "children") return selected ? selected.children : [];
+  return nodes;
+}
+function drawHierarchyPanel() {
+  clearPanel();
+  drawPanelBackground("PARENT / CHILD ITEMS");
+  const parentName = selected?.parent ? getItemDisplayName(selected.parent.item.itemID) : "ROOT / NONE";
+  addPanelText(selected ? `CURRENT: ${getItemDisplayName(selected.item.itemID)}` : "CURRENT: NONE", 0, 0.54, 1.52, 0.08, 22, "#f8df9a");
+  addPanelText(`PARENT: ${parentName} · CHILDREN: ${selected?.children.length || 0}`, 0, 0.43, 1.52, 0.07, 16, "#9ee5d1");
+  addButton("ALL ITEMS", "hierarchyParents", -0.47, 0.27, 0.66, 0.12, hierarchyListMode === "parents" ? "active" : "muted");
+  addButton("CHILDREN", "hierarchyChildren", 0.47, 0.27, 0.66, 0.12, hierarchyListMode === "children" ? "active" : "muted");
+  const entries = getHierarchyEntries();
+  const pageCount = Math.max(1, Math.ceil(entries.length / ITEM_PAGE_SIZE));
+  hierarchyPage = THREE.MathUtils.clamp(hierarchyPage, 0, pageCount - 1);
+  const visible = entries.slice(hierarchyPage * ITEM_PAGE_SIZE, (hierarchyPage + 1) * ITEM_PAGE_SIZE);
+  const columns = [-0.415, 0.415];
+  const rows = [0.06, -0.13, -0.32, -0.51];
+  visible.forEach((node, index) => {
+    const label = `${node === selected ? "▶ " : ""}${getItemDisplayName(node.item.itemID)}`;
+    addButton(label, `hierarchySelect:${node.uid}`, columns[index % 2], rows[Math.floor(index / 2)], 0.78, 0.14, node === selected ? "active" : "normal");
+  });
+  if (!visible.length) addPanelText(hierarchyListMode === "children" ? "NO CHILD ITEMS YET" : "NO ITEMS YET", 0, -0.24, 1.48, 0.09, 20, "#d6e5ed");
+  addButton("PREV", "hierarchyPagePrev", -0.49, -0.70, 0.38, 0.11, "muted");
+  addPanelText(`PAGE ${hierarchyPage + 1}/${pageCount} · ${entries.length} ITEMS`, 0, -0.70, 0.72, 0.07, 15, "#d6e5ed");
+  addButton("NEXT", "hierarchyPageNext", 0.49, -0.70, 0.38, 0.11, "muted");
+  addButton("ADD CHILD", "hierarchyAddChild", -0.43, -0.87, 0.68, 0.11, "good");
+  addButton("BACK", "hierarchyBack", 0.43, -0.87, 0.68, 0.11, "muted");
 }
 function drawSnapSettingsPanel() {
   clearPanel();
@@ -794,6 +838,7 @@ function redrawPanel() {
   if (keyboardOpen) drawKeyboardPanel();
   else if (snapValueKeyboardOpen) drawSnapValueKeyboard();
   else if (itemCatalogOpen) drawItemCatalogPanel();
+  else if (hierarchyOpen) drawHierarchyPanel();
   else if (snapSettingsOpen) drawSnapSettingsPanel();
   else drawMainPanel();
 }
@@ -1531,7 +1576,47 @@ function runAction(action) {
     return;
   }
   if (action === "openItemCatalog") {
+    catalogAddAsChild = false;
     openItemCatalog();
+    return;
+  }
+  if (action === "openHierarchy") {
+    openHierarchy(selected ? "children" : "parents");
+    return;
+  }
+  if (action === "hierarchyParents" || action === "hierarchyChildren") {
+    hierarchyListMode = action === "hierarchyParents" ? "parents" : "children";
+    hierarchyPage = 0;
+    redrawPanel();
+    return;
+  }
+  if (action === "hierarchyPagePrev" || action === "hierarchyPageNext") {
+    const count = Math.max(1, Math.ceil(getHierarchyEntries().length / ITEM_PAGE_SIZE));
+    hierarchyPage = THREE.MathUtils.clamp(hierarchyPage + (action.endsWith("Prev") ? -1 : 1), 0, count - 1);
+    redrawPanel();
+    return;
+  }
+  if (action.startsWith("hierarchySelect:")) {
+    const uid = Number(action.slice("hierarchySelect:".length));
+    const node = nodes.find((entry) => entry.uid === uid);
+    if (!node) { setStatus("That item is no longer in the build."); redrawPanel(); return; }
+    choose(node);
+    hierarchyOpen = true;
+    hierarchyListMode = "children";
+    hierarchyPage = 0;
+    setStatus(`Viewing ${getItemDisplayName(node.item.itemID)} in the workspace. Its children are listed here.`);
+    redrawPanel();
+    return;
+  }
+  if (action === "hierarchyAddChild") {
+    if (!selected) { setStatus("Choose a parent item first, then add a child."); return; }
+    catalogAddAsChild = true;
+    openItemCatalog();
+    return;
+  }
+  if (action === "hierarchyBack") {
+    hierarchyOpen = false;
+    redrawPanel();
     return;
   }
   if (action === "catalogCategoryPrev" || action === "catalogCategoryNext") {
@@ -1558,6 +1643,26 @@ function runAction(action) {
     }
     pendingItemID = entry.id;
     itemCatalogOpen = false;
+    if (catalogAddAsChild) {
+      catalogAddAsChild = false;
+      if (!selected || !nodes.includes(selected)) {
+        setStatus("Choose a parent item before adding a child.");
+        hierarchyOpen = true;
+        redrawPanel();
+        return;
+      }
+      const parent = selected;
+      const child = createNode(makeItem(entry.id), parent, [0.35, 0.15, 0]);
+      hierarchyOpen = true;
+      hierarchyListMode = "children";
+      hierarchyPage = Math.floor(Math.max(0, parent.children.indexOf(child)) / ITEM_PAGE_SIZE);
+      choose(child);
+      hierarchyOpen = true;
+      hierarchyListMode = "children";
+      setStatus(`Added ${entry.name} as a child of ${getItemDisplayName(parent.item.itemID)}. The 3D item is selected in the workspace.`);
+      redrawPanel();
+      return;
+    }
     const hasModel = MODEL_ASSETS.has(entry.id);
     setStatus(hasModel
       ? `Next item: ${entry.name}. The uploaded GLB will be checked when placed.`
@@ -1570,11 +1675,13 @@ function runAction(action) {
   }
   if (action === "catalogBack") {
     itemCatalogOpen = false;
+    catalogAddAsChild = false;
     redrawPanel();
     return;
   }
   if (action === "snapSettings") {
     itemCatalogOpen = false;
+    hierarchyOpen = false;
     snapSettingsOpen = true;
     redrawPanel();
     return;
