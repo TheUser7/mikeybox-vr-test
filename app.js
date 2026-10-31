@@ -86,6 +86,7 @@ let leftXWasPressed = false;
 const joystickConfig = { moveSpeed: 1.65, deadzone: 0.18, turnStepDegrees: 30, turnThreshold: 0.68, turnReleaseThreshold: 0.25 };
 const joystickState = { turnArmed: true };
 const dragStates = new Map();
+let twoHandScaleState = null;
 const handPinchStates = new Map();
 const handDragStates = new Map();
 const handPoseProxies = new Map();
@@ -131,7 +132,9 @@ for (const y of [0.13, 0, -0.13]) {
 // circular rings rotate around X/Y/Z. Handles can be pinched directly.
 const transformGizmo = new THREE.Group();
 transformGizmo.visible = false;
-scene.add(transformGizmo);
+// Keep the gizmo in the same workspace transform as the parts. This makes it
+// travel with the selected part when joystick locomotion moves worldGroup.
+worldGroup.add(transformGizmo);
 const gizmoHandles = [];
 const gizmoPickMeshes = [];
 const gizmoAxisColors = [0xff6868, 0x76e29a, 0x69aaff];
@@ -233,9 +236,16 @@ function updateTransformGizmo() {
     transformGizmo.visible = false;
     return;
   }
+  worldGroup.updateWorldMatrix(true, false);
   selected.group.updateWorldMatrix(true, false);
-  selected.group.getWorldPosition(transformGizmo.position);
-  transformGizmo.quaternion.identity();
+
+  // transformGizmo is a child of worldGroup, so store its position in the
+  // workspace's local coordinates. Its inverse parent rotation keeps the
+  // handles aligned to world XYZ instead of rotating with joystick snap-turns.
+  const selectedWorldPosition = selected.group.getWorldPosition(new THREE.Vector3());
+  transformGizmo.position.copy(worldGroup.worldToLocal(selectedWorldPosition));
+  const workspaceWorldQuaternion = worldGroup.getWorldQuaternion(new THREE.Quaternion());
+  transformGizmo.quaternion.copy(workspaceWorldQuaternion.invert());
   transformGizmo.scale.setScalar(1);
   transformGizmo.visible = renderer.xr.isPresenting;
   transformGizmo.updateMatrixWorld(true);
@@ -1032,7 +1042,7 @@ function closestPointOnAxisSegment(point, center, axis, minT, maxT) {
 function findGizmoHandleAtPoint(point) {
   if (!transformGizmo.visible || !selected) return null;
   transformGizmo.updateMatrixWorld(true);
-  const center = transformGizmo.position;
+  const center = transformGizmo.getWorldPosition(new THREE.Vector3());
   let best = null;
   let bestDistance = Infinity;
   for (const handle of gizmoHandles) {
@@ -1229,6 +1239,7 @@ function beginDrag(rayController, grip) {
   setStatus(`Holding ${node.item.itemID}. Move your controller hand; release grip to place it.`);
 }
 function updateDrags() {
+  if (twoHandScaleState && updateTwoHandScale()) return;
   for (const [rayController, drag] of dragStates.entries()) {
     const node = drag.node;
     if (!nodes.includes(node)) { dragStates.delete(rayController); continue; }
@@ -1241,6 +1252,58 @@ function updateDrags() {
     applyObjectDrag(node, drag.grip, drag.offset);
   }
 }
+function controllerGripWorldPosition(record) {
+  record.grip.updateMatrixWorld(true);
+  return record.grip.getWorldPosition(new THREE.Vector3());
+}
+function tryBeginTwoHandScale() {
+  if (twoHandScaleState || !selected || !nodes.includes(selected)) return false;
+  const leftRecord = controllerRecords.find((record) => record.handedness === "left");
+  const rightRecord = controllerRecords.find((record) => record.handedness === "right");
+  if (!leftRecord?.squeezePressed || !rightRecord?.squeezePressed) return false;
+
+  const leftPosition = controllerGripWorldPosition(leftRecord);
+  const rightPosition = controllerGripWorldPosition(rightRecord);
+  const startDistance = leftPosition.distanceTo(rightPosition);
+  if (!Number.isFinite(startDistance) || startDistance < 0.04) return false;
+
+  // Switch from any one-hand grab to a two-hand scale gesture.
+  dragStates.delete(leftRecord.controller);
+  dragStates.delete(rightRecord.controller);
+  const startModifier = Number(selected.item.scaleModifier || 0);
+  twoHandScaleState = {
+    node: selected,
+    leftRecord,
+    rightRecord,
+    startDistance,
+    startModifier,
+    startScale: Math.max(1 / 128, 1 + startModifier / 128)
+  };
+  setStatus("TWO-HAND SCALE · Hold both controller grips and pull apart to enlarge or bring together to shrink.");
+  return true;
+}
+function updateTwoHandScale() {
+  const state = twoHandScaleState;
+  if (!state) return false;
+  if (!nodes.includes(state.node) || !state.leftRecord.squeezePressed || !state.rightRecord.squeezePressed) {
+    twoHandScaleState = null;
+    return false;
+  }
+  const leftPosition = controllerGripWorldPosition(state.leftRecord);
+  const rightPosition = controllerGripWorldPosition(state.rightRecord);
+  const currentDistance = leftPosition.distanceTo(rightPosition);
+  if (!Number.isFinite(currentDistance) || currentDistance < 0.02) return true;
+
+  const scaleFactor = currentDistance / state.startDistance;
+  const desiredScale = THREE.MathUtils.clamp(state.startScale * scaleFactor, 1 / 128, 255 / 128);
+  const modifier = THREE.MathUtils.clamp(Math.round((desiredScale - 1) * 128), -127, 127);
+  if (modifier !== state.node.item.scaleModifier) {
+    state.node.item.scaleModifier = modifier;
+    syncMesh(state.node);
+  }
+  return true;
+}
+
 function applyStickDeadzone(value, deadzone) {
   const magnitude = Math.abs(value);
   if (magnitude <= deadzone) return 0;
@@ -1266,13 +1329,14 @@ function applyPlayerSnapTurn(xrCamera, direction) {
   worldGroup.position.sub(pivot).applyQuaternion(turn).add(pivot);
   worldGroup.quaternion.premultiply(turn).normalize();
   worldGroup.updateMatrixWorld(true);
+  updateTransformGizmo();
 }
 
 function updateJoystickMovement(deltaSeconds) {
   if (!renderer.xr.isPresenting) return;
   // Avoid moving the workspace while a part is being manipulated or an
   // in-VR text keypad is open. Otherwise locomotion is independent of selection.
-  if (dragStates.size || handDragStates.size || keyboardOpen || snapValueKeyboardOpen) return;
+  if (dragStates.size || handDragStates.size || twoHandScaleState || controllerRecords.some((record) => record.squeezePressed) || keyboardOpen || snapValueKeyboardOpen) return;
 
   const session = renderer.xr.getSession();
   const sources = Array.from(session?.inputSources || []);
@@ -1339,7 +1403,7 @@ function setupController(index) {
   const line = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({ color: 0x44ffcc }));
   line.frustumCulled = false;
   controller.add(line);
-  const record = { index, controller, grip, handedness: null, inputSource: null };
+  const record = { index, controller, grip, handedness: null, inputSource: null, squeezePressed: false };
   controller.addEventListener("connected", (event) => {
     record.inputSource = event.data || null;
     record.handedness = event.data?.handedness || null;
@@ -1365,11 +1429,26 @@ function setupController(index) {
       }
     }
     record.inputSource = null;
+    record.squeezePressed = false;
     dragStates.delete(controller);
+    if (twoHandScaleState && (twoHandScaleState.leftRecord === record || twoHandScaleState.rightRecord === record)) {
+      twoHandScaleState = null;
+    }
   });
   controller.addEventListener("selectstart", () => onTrigger(controller));
-  controller.addEventListener("squeezestart", () => beginDrag(controller, grip));
+  controller.addEventListener("squeezestart", () => {
+    record.squeezePressed = true;
+    if (!tryBeginTwoHandScale()) beginDrag(controller, grip);
+  });
   controller.addEventListener("squeezeend", () => {
+    record.squeezePressed = false;
+    if (twoHandScaleState && (twoHandScaleState.leftRecord === record || twoHandScaleState.rightRecord === record)) {
+      twoHandScaleState = null;
+      for (const activeRecord of controllerRecords) dragStates.delete(activeRecord.controller);
+      if (snapConfig.positionEnabled || snapConfig.rotationEnabled) playSfx("snapIn");
+      setStatus("Two-hand scaling finished.");
+      return;
+    }
     const drag = dragStates.get(controller);
     if (dragStates.delete(controller)) {
       if ((drag.mode === "gizmo" && (drag.handle.kind === "translate" ? snapConfig.positionEnabled : snapConfig.rotationEnabled)) || (drag.mode !== "gizmo" && (snapConfig.positionEnabled || snapConfig.rotationEnabled))) playSfx("snapIn");
@@ -1735,6 +1814,8 @@ $("enterVR").addEventListener("click", async () => {
       snapValueKeyboardOpen = false;
       transformGizmo.visible = false;
       joystickState.turnArmed = true;
+      twoHandScaleState = null;
+      for (const record of controllerRecords) record.squeezePressed = false;
       leftHandGrip = null;
       leftHandMenuActive = false;
       handPinchStates.clear();
@@ -1794,7 +1875,10 @@ renderer.setAnimationLoop((time, xrFrame) => {
     menuToggleGroup.visible = false;
   }
   updateDrags();
-  if (renderer.xr.isPresenting) updateJoystickMovement(deltaSeconds);
+  if (renderer.xr.isPresenting) {
+    updateJoystickMovement(deltaSeconds);
+    updateTransformGizmo();
+  }
   renderer.render(scene, camera);
 });
 setStatus(statusText);

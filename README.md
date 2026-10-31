@@ -16,7 +16,7 @@ Experimental Quest 3 Browser / WebXR prototype. Editing remains inside immersive
 - **Left stick:** smooth player locomotion. Push forward/back to walk relative to the direction your headset faces; push left/right to strafe.
 - **Right stick left/right:** snap-turn the player by 30 degrees per flick. Release back to center before the next turn.
 - Stick movement translates/rotates the whole workspace around the headset. It does **not** move the selected part.
-- Locomotion pauses while dragging a part or while an in-VR text keypad is open.
+- Locomotion pauses while manipulating a part, using two-hand scaling, or while an in-VR text keypad is open.
 
 ## Gizmo handles
 
@@ -25,6 +25,7 @@ Experimental Quest 3 Browser / WebXR prototype. Editing remains inside immersive
 - Hand pinch hit radius for movement arrows is wider.
 - Rotation ring pickers are widened as well.
 - Rotation keeps the selected part's world-space center fixed.
+- The gizmo is parented to the workspace and positioned in workspace-local coordinates, so it stays attached to the selected part while joystick locomotion moves the workspace. Its axes remain aligned to world XYZ.
 
 ## Hand tracking and editing
 
@@ -33,6 +34,7 @@ Experimental Quest 3 Browser / WebXR prototype. Editing remains inside immersive
 - Pinch a part to move it freely.
 - Pinch an enlarged XYZ arrow to move along one axis.
 - Pinch a rotation ring to rotate around that axis without translating the part.
+- **Two-controller scaling:** select a part, then hold the grip/squeeze button on both Quest controllers. Pull the controllers apart to enlarge the part; bring them together to shrink it. Release either grip to finish scaling. Scaling changes the selected item's exported `scaleModifier`.
 
 ## Snapping and sounds
 
