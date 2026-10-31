@@ -15,17 +15,22 @@ Experimental Quest Browser / WebXR prototype. The editor runs in immersive VR, w
 - Enable hand tracking on the Quest 3 and open the site in Quest Browser.
 - The editor menu follows the left wrist and faces toward the headset.
 - Point at a menu button with your right index finger and pinch to press it. (The menu can also be aimed at with a controller.)
-- To move a part, bring your thumb and index finger close together near the part, keep them pinched, and move your hand. Open your fingers to release.
+- Select a part to show its 3D transform gizmo.
+- Pinch either end of a double-ended arrow and push/pull your hand to move the part along X, Y, or Z.
+- Pinch a colored rotation circle and move your hand around the circle to rotate around that axis.
+- Pinch the part itself to freely grab and move it.
+- Open your fingers to release any handle or part.
 - A simple tracked hand skeleton is rendered while hand tracking is active.
 
 ## Controller fallback
 
 - Point and press trigger to select menu controls or objects.
-- Move a controller hand close to a part and hold its grip/squeeze button to grab, move and rotate it. Release to place it.
+- Point at an XYZ arrow or rotation circle and hold grip/squeeze to manipulate that axis. Release to place it.
+- Hold grip near a part itself to freely grab and move it.
 
 ## Builder features
 
-Create a root, add attached parts, delete parts, edit item IDs with the in-VR keyboard, nudge, rotate, scale, import and export invention JSON.
+Create a root, add attached parts, delete parts, edit item IDs with the in-VR keyboard, precisely translate with XYZ arrows, rotate with circular handles, scale, import and export invention JSON.
 
 ## Limitations
 

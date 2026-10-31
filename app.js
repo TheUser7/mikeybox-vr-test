@@ -47,7 +47,7 @@ let nextId = 1;
 let pendingItemID = "item_crate";
 let keyboardDraft = "item_crate";
 let keyboardOpen = false;
-let statusText = "Enter VR. The menu follows your left hand; pinch a part to move it.";
+let statusText = "Enter VR. Select a part, then pinch its XYZ arrows or rotation circles.";
 let panelReady = false;
 let leftHandGrip = null;
 let leftHandMenuActive = false;
@@ -70,6 +70,80 @@ const panel = new THREE.Group();
 panel.visible = false;
 panel.scale.setScalar(0.32);
 scene.add(panel);
+
+// World-space transform gizmo: double-ended arrows translate on X/Y/Z,
+// circular rings rotate around X/Y/Z. Handles can be pinched directly.
+const transformGizmo = new THREE.Group();
+transformGizmo.visible = false;
+scene.add(transformGizmo);
+const gizmoHandles = [];
+const gizmoPickMeshes = [];
+const gizmoAxisColors = [0xff6868, 0x76e29a, 0x69aaff];
+const worldAxes = [
+  new THREE.Vector3(1, 0, 0),
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, 0, 1)
+];
+function addGizmoMesh(mesh, handle) {
+  mesh.userData.gizmoHandle = handle;
+  transformGizmo.add(mesh);
+  gizmoPickMeshes.push(mesh);
+  return mesh;
+}
+worldAxes.forEach((axis, index) => {
+  const color = gizmoAxisColors[index];
+  const shaft = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 1.08, 10),
+    new THREE.MeshBasicMaterial({ color, depthTest: true })
+  );
+  shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
+  addGizmoMesh(shaft, { kind: "translate", axis, axisIndex: index });
+
+  [1, -1].forEach((direction) => {
+    const tip = new THREE.Mesh(
+      new THREE.ConeGeometry(0.042, 0.14, 10),
+      new THREE.MeshBasicMaterial({ color, depthTest: true })
+    );
+    const directedAxis = axis.clone().multiplyScalar(direction);
+    tip.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), directedAxis);
+    tip.position.copy(directedAxis).multiplyScalar(0.60);
+    addGizmoMesh(tip, { kind: "translate", axis, axisIndex: index });
+  });
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.49, 0.012, 8, 96),
+    new THREE.MeshBasicMaterial({ color, depthTest: true })
+  );
+  ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+  addGizmoMesh(ring, { kind: "rotate", axis, axisIndex: index });
+
+  const axisLabel = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeCanvasTexture(["X", "Y", "Z"][index], { width: 128, height: 128, fontSize: 100, color: "#ffffff" }),
+    transparent: true,
+    depthTest: true
+  }));
+  axisLabel.scale.set(0.13, 0.13, 1);
+  axisLabel.position.copy(axis).multiplyScalar(0.82);
+  transformGizmo.add(axisLabel);
+});
+const gizmoCenter = new THREE.Mesh(
+  new THREE.SphereGeometry(0.045, 12, 8),
+  new THREE.MeshBasicMaterial({ color: 0xf5f7fa })
+);
+transformGizmo.add(gizmoCenter);
+for (const mesh of gizmoPickMeshes) gizmoHandles.push(mesh.userData.gizmoHandle);
+function updateTransformGizmo() {
+  if (!selected || !nodes.includes(selected)) {
+    transformGizmo.visible = false;
+    return;
+  }
+  selected.group.updateWorldMatrix(true, false);
+  selected.group.getWorldPosition(transformGizmo.position);
+  transformGizmo.quaternion.identity();
+  transformGizmo.scale.setScalar(1);
+  transformGizmo.visible = renderer.xr.isPresenting;
+  transformGizmo.updateMatrixWorld(true);
+}
 
 function validItemID(id) {
   return /^item_[a-z0-9_-]{1,48}$/i.test(String(id || "").trim());
@@ -196,20 +270,12 @@ function drawMainPanel() {
   addButton("EXPORT", "export", 0, 0.15, 0.48, 0.15, "good");
   addButton("IMPORT", "import", 0.53, 0.15, 0.48, 0.15);
 
-  addPanelText("MOVE · 5 cm per press", 0, -0.035, 1.45, 0.09, 27, "#a9c2cf");
-  const xs = [-0.65, -0.39, -0.13, 0.13, 0.39, 0.65];
-  ["X−", "X+", "Y−", "Y+", "Z−", "Z+"].forEach((label, i) =>
-    addButton(label, `move:${i}`, xs[i], -0.19, 0.22, 0.14)
-  );
-
-  addPanelText("ROTATE · 15° per press", 0, -0.39, 1.45, 0.09, 27, "#a9c2cf");
-  ["RX−", "RX+", "RY−", "RY+", "RZ−", "RZ+"].forEach((label, i) =>
-    addButton(label, `rotate:${i}`, xs[i], -0.55, 0.22, 0.14)
-  );
-
-  addButton("SCALE −", "scale:-1", -0.38, -0.80, 0.48, 0.15);
-  addButton("SCALE +", "scale:1", 0.15, -0.80, 0.48, 0.15);
-  addPanelText("LEFT HAND MENU · Point + pinch to press · Pinch a nearby part to move", 0, -0.94, 1.55, 0.07, 17, "#91a6b3");
+  addPanelText("SELECT A PART · USE THE 3D GIZMO", 0, -0.04, 1.48, 0.09, 26, "#a9c2cf");
+  addPanelText("DOUBLE ARROWS · PUSH / PULL X Y Z", 0, -0.20, 1.50, 0.09, 22, "#ffcf8a");
+  addPanelText("CIRCLES · TURN ROTATION X Y Z", 0, -0.34, 1.50, 0.09, 22, "#a9c2cf");
+  addButton("SCALE −", "scale:-1", -0.38, -0.57, 0.48, 0.15);
+  addButton("SCALE +", "scale:1", 0.15, -0.57, 0.48, 0.15);
+  addPanelText("PINCH A HANDLE · DRAG IT · RELEASE", 0, -0.78, 1.55, 0.07, 18, "#91a6b3");
 }
 function drawKeyboardPanel() {
   clearPanel();
@@ -247,6 +313,7 @@ function syncMesh(node) {
   node.group.position.copy(node.position);
   node.group.quaternion.copy(node.quaternion);
   node.mesh.scale.setScalar(Math.max(0.01, 1 + Number(node.item.scaleModifier || 0) / 128));
+  if (node === selected) updateTransformGizmo();
 }
 function makeVisual(node) {
   const geo = new THREE.BoxGeometry(0.28, 0.28, 0.28);
@@ -318,11 +385,13 @@ function disposeBuild() {
   rootGroup.clear();
   nodes = [];
   selected = null;
+  transformGizmo.visible = false;
   nextId = 1;
 }
 function choose(node) {
   selected = node;
   if (node) pendingItemID = node.item.itemID;
+  updateTransformGizmo();
   redrawPanel();
 }
 function exportBuild() {
@@ -409,7 +478,7 @@ function runAction(action) {
     if (nodes.some((n) => !n.parent)) { setStatus("A root already exists. Import a different build to replace it."); return; }
     if (!validItemID(pendingItemID)) pendingItemID = "item_crate";
     choose(createNode(makeItem(pendingItemID), null, [0, 1.1, 0.45]));
-    setStatus("Root created. Point to select; pinch (hands) or squeeze (controller) near it to move.");
+    setStatus("Root created. Pinch or point at it to select; its XYZ arrows and rotation circles appear.");
   } else if (action === "addPart") {
     if (!selected) { setStatus("Select the parent item before adding a part."); return; }
     const child = createNode(makeItem(pendingItemID), selected, [0.35, 0.15, 0]);
@@ -448,6 +517,96 @@ function runAction(action) {
   }
 }
 
+function closestPointOnAxisSegment(point, center, axis, minT, maxT) {
+  const relative = point.clone().sub(center);
+  const t = THREE.MathUtils.clamp(relative.dot(axis), minT, maxT);
+  return center.clone().addScaledVector(axis, t);
+}
+function findGizmoHandleAtPoint(point) {
+  if (!transformGizmo.visible || !selected) return null;
+  transformGizmo.updateMatrixWorld(true);
+  const center = transformGizmo.position;
+  let best = null;
+  let bestDistance = Infinity;
+  for (const handle of gizmoHandles) {
+    const axis = handle.axis;
+    let distance;
+    if (handle.kind === "translate") {
+      const closest = closestPointOnAxisSegment(point, center, axis, -0.70, 0.70);
+      distance = point.distanceTo(closest);
+      if (distance < 0.105 && distance < bestDistance) {
+        best = handle;
+        bestDistance = distance;
+      }
+    } else {
+      const relative = point.clone().sub(center);
+      const axial = relative.dot(axis);
+      const radial = relative.addScaledVector(axis, -axial).length();
+      distance = Math.hypot(axial, radial - 0.49);
+      if (distance < 0.11 && distance < bestDistance) {
+        best = handle;
+        bestDistance = distance;
+      }
+    }
+  }
+  return best;
+}
+function getRingBasis(axis) {
+  if (Math.abs(axis.x) > 0.9) return [new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+  if (Math.abs(axis.y) > 0.9) return [new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)];
+  return [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0)];
+}
+function ringAngle(point, center, axis) {
+  const [u, v] = getRingBasis(axis);
+  const relative = point.clone().sub(center);
+  return Math.atan2(relative.dot(v), relative.dot(u));
+}
+function makeGizmoDrag(node, handle, startPoint) {
+  const parent = node.group.parent;
+  parent.updateWorldMatrix(true, false);
+  node.group.updateWorldMatrix(true, false);
+  const parentWorldQuaternion = parent.getWorldQuaternion(new THREE.Quaternion());
+  const inverseParentWorldQuaternion = parentWorldQuaternion.clone().invert();
+  const startWorldPosition = node.group.getWorldPosition(new THREE.Vector3());
+  const startWorldQuaternion = node.group.getWorldQuaternion(new THREE.Quaternion());
+  return {
+    mode: "gizmo", node, handle,
+    axis: handle.axis.clone(),
+    center: startWorldPosition,
+    startPoint: startPoint.clone(),
+    startPosition: node.position.clone(),
+    startQuaternion: node.quaternion.clone(),
+    startWorldQuaternion,
+    inverseParentWorldQuaternion,
+    startAngle: handle.kind === "rotate" ? ringAngle(startPoint, startWorldPosition, handle.axis) : 0
+  };
+}
+function applyGizmoDrag(drag, point) {
+  if (!nodes.includes(drag.node)) return;
+  if (drag.handle.kind === "translate") {
+    const amount = point.clone().sub(drag.startPoint).dot(drag.axis);
+    const worldDelta = drag.axis.clone().multiplyScalar(amount);
+    const localDelta = worldDelta.applyQuaternion(drag.inverseParentWorldQuaternion);
+    drag.node.position.copy(drag.startPosition).add(localDelta);
+  } else {
+    let angle = ringAngle(point, drag.center, drag.axis) - drag.startAngle;
+    while (angle > Math.PI) angle -= Math.PI * 2;
+    while (angle < -Math.PI) angle += Math.PI * 2;
+    const worldRotation = new THREE.Quaternion().setFromAxisAngle(drag.axis, angle);
+    const desiredWorldQuaternion = worldRotation.multiply(drag.startWorldQuaternion.clone()).normalize();
+    drag.node.quaternion.copy(drag.inverseParentWorldQuaternion.clone().multiply(desiredWorldQuaternion)).normalize();
+  }
+  syncMesh(drag.node);
+}
+function beginHandGizmoDrag(input, proxy, handle) {
+  if (!selected || !handle) return false;
+  const drag = makeGizmoDrag(selected, handle, proxy.position);
+  drag.proxy = proxy;
+  handDragStates.set(input, drag);
+  const label = handle.kind === "translate" ? "Move axis" : "Rotation ring";
+  setStatus(`${label} grabbed. Drag along the handle, then release your pinch.`);
+  return true;
+}
 function getControllerRay(controller) {
   tempMatrix.identity().extractRotation(controller.matrixWorld);
   raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
@@ -460,6 +619,11 @@ function pickNode(controller) {
   const hits = raycaster.intersectObjects(nodes.map((n) => n.mesh), false);
   return hits.length ? hits[0].object.userData.node : null;
 }
+function pickGizmoHandle(controller) {
+  getControllerRay(controller);
+  const hits = raycaster.intersectObjects(gizmoPickMeshes, false);
+  return hits.length ? hits[0] : null;
+}
 function onTrigger(controller) {
   getControllerRay(controller);
   const buttonHits = raycaster.intersectObjects(uiButtons, false);
@@ -470,7 +634,7 @@ function onTrigger(controller) {
   const node = pickNode(controller);
   if (node) {
     choose(node);
-    setStatus(`Selected ${node.item.itemID}. Pinch near it with hands, or squeeze with a controller, to move it.`);
+    setStatus(`Selected ${node.item.itemID}. Use its double arrows to move and circles to rotate.`);
   }
 }
 function nearestNodeToHand(grip, maxDistance = 0.34) {
@@ -490,6 +654,19 @@ function nearestNodeToHand(grip, maxDistance = 0.34) {
   return nearest;
 }
 function beginDrag(rayController, grip) {
+  // Prefer a visible transform handle. Aim at an arrow/ring and hold grip to
+  // push/pull the axis or turn the ring with the controller hand.
+  const gizmoHit = pickGizmoHandle(rayController);
+  if (gizmoHit && selected) {
+    grip.updateMatrixWorld(true);
+    const gripPosition = new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld);
+    const drag = makeGizmoDrag(selected, gizmoHit.object.userData.gizmoHandle, gizmoHit.point);
+    drag.grip = grip;
+    drag.pointerOffset = gizmoHit.point.clone().sub(gripPosition);
+    dragStates.set(rayController, drag);
+    setStatus(drag.handle.kind === "translate" ? "Moving on the selected XYZ axis." : "Turning the selected rotation ring.");
+    return;
+  }
   // Grab the closest part to the tracked controller grip, rather than dragging
   // from the controller's aim-ray pose. This makes the part follow hand motion.
   let node = nearestNodeToHand(grip);
@@ -516,6 +693,11 @@ function updateDrags() {
     const node = drag.node;
     if (!nodes.includes(node)) { dragStates.delete(rayController); continue; }
     drag.grip.updateMatrixWorld(true);
+    if (drag.mode === "gizmo") {
+      const gripPosition = new THREE.Vector3().setFromMatrixPosition(drag.grip.matrixWorld);
+      applyGizmoDrag(drag, gripPosition.add(drag.pointerOffset));
+      continue;
+    }
     const desiredWorld = tempMatrix2.copy(drag.grip.matrixWorld).multiply(drag.offset);
     const parent = node.group.parent;
     parent.updateMatrixWorld(true);
@@ -523,6 +705,7 @@ function updateDrags() {
     local.decompose(node.position, node.quaternion, tempScale);
     node.group.position.copy(node.position);
     node.group.quaternion.copy(node.quaternion);
+    updateTransformGizmo();
   }
 }
 function attachPanelToLeftHand() {
@@ -689,6 +872,25 @@ function updateHandVisual(input, xrFrame, referenceSpace, jointSpaces) {
   return visual;
 }
 
+function pickHandMenuButton(input, xrFrame, referenceSpace, jointSpaces) {
+  if (!input || !xrFrame || !referenceSpace) return null;
+  const baseSpace = jointSpaces.get("index-finger-metacarpal");
+  const tipSpace = jointSpaces.get("index-finger-tip");
+  if (!baseSpace || !tipSpace) return null;
+  const basePose = xrFrame.getJointPose(baseSpace, referenceSpace);
+  const tipPose = xrFrame.getJointPose(tipSpace, referenceSpace);
+  if (!basePose || !tipPose) return null;
+  const base = basePose.transform.position;
+  const tip = tipPose.transform.position;
+  const origin = new THREE.Vector3(tip.x, tip.y, tip.z);
+  const direction = new THREE.Vector3(tip.x - base.x, tip.y - base.y, tip.z - base.z);
+  if (direction.lengthSq() < 0.000001) return null;
+  raycaster.set(origin, direction.normalize());
+  raycaster.near = 0.005;
+  raycaster.far = 2.0;
+  const hits = raycaster.intersectObjects(uiButtons, false);
+  return hits.length ? hits[0].object : null;
+}
 function updateHandTracking(xrFrame) {
   if (!xrFrame || !renderer.xr.isPresenting) return;
   const session = renderer.xr.getSession();
@@ -760,23 +962,35 @@ function updateHandTracking(xrFrame) {
 
     let state = handPinchStates.get(input);
     if (!state) {
-      state = { pinching: false };
+      state = { pinching: false, uiPressed: false };
       handPinchStates.set(input, state);
     }
 
     if (!state.pinching && distance < 0.035) {
       state.pinching = true;
-      const node = nearestNodeToHand(proxy, 0.34);
-      if (node) {
-        node.group.updateMatrixWorld(true);
-        const offset = proxy.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
-        handDragStates.set(input, { node, proxy, offset });
-        choose(node);
-        setStatus(`Pinching ${node.item.itemID}. Move your hand; release your fingers to place it.`);
+      const menuButton = pickHandMenuButton(input, xrFrame, referenceSpace, jointSpaces);
+      if (menuButton) {
+        state.uiPressed = true;
+        runAction(menuButton.userData.action);
+      } else {
+        const handle = findGizmoHandleAtPoint(proxy.position);
+        if (handle && selected) {
+          beginHandGizmoDrag(input, proxy, handle);
+        } else {
+        const node = nearestNodeToHand(proxy, 0.34);
+        if (node) {
+          node.group.updateMatrixWorld(true);
+          const offset = proxy.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
+          handDragStates.set(input, { mode: "object", node, proxy, offset });
+          choose(node);
+          setStatus(`Pinching ${node.item.itemID}. Move your hand; release your fingers to place it.`);
+        }
+        }
       }
     } else if (state.pinching && distance > 0.065) {
       state.pinching = false;
       if (handDragStates.delete(input)) setStatus("Part placed.");
+      state.uiPressed = false;
     }
   }
 
@@ -797,6 +1011,10 @@ function updateHandTracking(xrFrame) {
       continue;
     }
     drag.proxy.updateMatrixWorld(true);
+    if (drag.mode === "gizmo") {
+      applyGizmoDrag(drag, drag.proxy.position);
+      continue;
+    }
     const desiredWorld = tempMatrix2.copy(drag.proxy.matrixWorld).multiply(drag.offset);
     const parent = drag.node.group.parent;
     parent.updateMatrixWorld(true);
@@ -804,6 +1022,7 @@ function updateHandTracking(xrFrame) {
     local.decompose(drag.node.position, drag.node.quaternion, tempScale);
     drag.node.group.position.copy(drag.node.position);
     drag.node.group.quaternion.copy(drag.node.quaternion);
+    updateTransformGizmo();
   }
 }
 
@@ -824,12 +1043,14 @@ $("enterVR").addEventListener("click", async () => {
     camera.quaternion.identity();
     camera.updateMatrixWorld(true);
     await renderer.xr.setSession(session);
+    updateTransformGizmo();
     $("landing").hidden = true;
     panel.visible = false;
     setStatus("VR started. Connecting the left-hand menu…");
     session.addEventListener("end", () => {
       panel.visible = false;
       panelReady = false;
+      transformGizmo.visible = false;
       leftHandGrip = null;
       leftHandMenuActive = false;
       handPinchStates.clear();
