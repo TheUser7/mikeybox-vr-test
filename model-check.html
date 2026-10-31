@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101820">
+  <title>Goop VR Builder — 3D Model Check v0.9.4</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    *{box-sizing:border-box}body{margin:0;padding:22px;background:#101820;color:#eef4f8;font:16px system-ui,sans-serif}
+    main{max-width:820px;margin:auto}.tag{color:#8de5d0;font-weight:800;letter-spacing:.12em;font-size:12px}
+    h1{margin:8px 0;font-size:clamp(28px,5vw,42px)}p{color:#bfd0d9;line-height:1.5}
+    #base{overflow-wrap:anywhere;color:#94d8cc;font-size:13px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:20px 0}
+    .card{padding:15px;border:1px solid #3e5966;border-radius:13px;background:#172a35;min-width:0}.name{font-weight:800}.file{font-size:12px;color:#a9c2cf;overflow-wrap:anywhere;margin-top:6px}.state{margin-top:10px;font-weight:800;color:#f8df9a}.ok{color:#88e2b5}.bad{color:#ff9a8e}
+    button,a{display:inline-block;padding:12px 16px;border-radius:10px;border:1px solid #4abca7;background:#176c65;color:#fff;text-decoration:none;font-weight:800;font-size:14px;margin:4px 5px 4px 0}button{cursor:pointer}
+    #summary{margin:16px 0;padding:14px;background:#203642;border-radius:12px;color:#d6e5ed;white-space:pre-wrap;line-height:1.5}
+    code{color:#b9e8df}
+  </style>
+</head>
+<body>
+<main>
+  <div class="tag">GOOP VR BUILDER · DIAGNOSTICS</div>
+  <h1>3D Model File Check</h1>
+  <p>This page checks that GitHub Pages can fetch and parse the six mapped, non-weapon prop models. It does not change your build.</p>
+  <p id="base">Site location: checking…</p>
+  <button id="run">RUN MODEL CHECK</button>
+  <a href="./index.html">BACK TO BUILDER</a>
+  <div id="summary" aria-live="polite">Preparing checks…</div>
+  <section class="grid" id="results"></section>
+  <p>How to read the result: <b>HTTP 404</b> means the file is not at the deployed path. <b>Not a GLB</b> means the URL returned something other than a binary glTF file. <b>Parse failed</b> means the file was found but its contents could not be decoded by the model loader.</p>
+</main>
+<script type="module">
+const MODELS = [
+  { name: "Boombox", file: "animal_company_-_boombox.glb" },
+  { name: "Company Ration", file: "animal_company_-_company_ration.glb" },
+  { name: "Crate", file: "animal_company_-_crate.glb" },
+  { name: "Rubber Ducky", file: "animal_company_-_rubberducky.glb" },
+  { name: "Mega Flashlight", file: "animal_company_-_flashlight_mega.glb" },
+  { name: "Hoverpad", file: "animal_company_-_hover_pad.glb" }
+];
+const $ = (id) => document.getElementById(id);
+const results = $("results");
+$("base").textContent = `Site location: ${location.href}\nExpected model folder: ${new URL("./models/", location.href).href}`;
+function addCard(model) {
+  const card = document.createElement("article"); card.className = "card";
+  const name = document.createElement("div"); name.className = "name"; name.textContent = model.name;
+  const file = document.createElement("div"); file.className = "file"; file.textContent = model.file;
+  const state = document.createElement("div"); state.className = "state"; state.textContent = "WAITING";
+  card.append(name,file,state); results.append(card); return state;
+}
+async function runChecks() {
+  results.replaceChildren();
+  $("summary").textContent = "Loading Three.js and GLTFLoader…";
+  const rows = MODELS.map((model) => ({ model, state: addCard(model) }));
+  let loader;
+  try {
+    const [THREE, addon] = await Promise.all([
+      import("three"),
+      import("three/addons/loaders/GLTFLoader.js")
+    ]);
+    loader = new addon.GLTFLoader();
+    loader.setCrossOrigin("anonymous");
+    void THREE;
+  } catch (error) {
+    const message = `LOADER IMPORT FAILED: ${error?.message || error}`;
+    rows.forEach(({state}) => { state.className = "state bad"; state.textContent = message; });
+    $("summary").textContent = message;
+    return;
+  }
+  let ok = 0;
+  for (const {model,state} of rows) {
+    const url = new URL(encodeURIComponent(model.file), new URL("./models/", location.href));
+    state.className = "state"; state.textContent = "CHECKING…";
+    try {
+      const response = await fetch(url.href, { cache: "no-store", mode: "same-origin" });
+      if (!response.ok) throw new Error(`HTTP ${response.status} — ${url.pathname}`);
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength < 20) throw new Error(`File too small (${buffer.byteLength} bytes)`);
+      const magic = new DataView(buffer).getUint32(0, true);
+      if (magic !== 0x46546c67) throw new Error("Not a GLB file (missing glTF binary signature). URL may be returning an HTML page.");
+      const gltf = await loader.parseAsync(buffer, new URL("./models/", location.href).href);
+      if (!gltf.scene) throw new Error("Parsed, but no default scene was found.");
+      let meshes = 0; gltf.scene.traverse((node) => { if (node.isMesh) meshes++; });
+      if (!meshes) throw new Error("GLB parsed, but contains no mesh objects.");
+      ok++;
+      state.className = "state ok";
+      state.textContent = `OK · ${meshes} mesh(es) · ${(buffer.byteLength/1024).toFixed(1)} KB`;
+    } catch (error) {
+      state.className = "state bad";
+      state.textContent = `FAILED · ${String(error?.message || error).slice(0,220)}`;
+    }
+  }
+  $("summary").textContent = `${ok}/${MODELS.length} models passed fetch + GLB parse.\nIf a file shows HTTP 404, check that it is in the repository-root models/ folder and was included in the GitHub Pages deployment. If all six pass here but the VR builder still shows placeholders, refresh the builder page and confirm its version badge says ALPHA v0.9.4.`;
+}
+$("run").addEventListener("click", runChecks);
+runChecks();
+</script>
+</body>
+</html>

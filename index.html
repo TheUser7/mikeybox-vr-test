@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <meta name="theme-color" content="#101820">
-  <title>Goop VR Builder — Alpha v0.9.3</title>
-  <meta name="app-version" content="0.9.3">
+  <title>Goop VR Builder — Alpha v0.9.4</title>
+  <meta name="app-version" content="0.9.4">
   <link rel="stylesheet" href="./style.css">
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"
+        "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
       }
     }
   </script>
@@ -21,12 +22,13 @@
       <div class="eyebrow">QUEST 3 · WEBXR</div>
       <div class="version-row" aria-label="Site version">
         <span class="version-label">SITE VERSION</span>
-        <strong id="siteVersion">ALPHA v0.9.3</strong>
-        <span class="build-label">BUILD 2026.10.31-r5</span>
+        <strong id="siteVersion">ALPHA v0.9.4</strong>
+        <span class="build-label">BUILD 2026.10.31-r6</span>
       </div>
       <h1>GOOP VR BUILDER</h1>
       <p>Build and edit entirely inside immersive VR. The menu follows your left wrist and toggles with X on the left controller. Press B on the right controller to switch between full gizmo editing and object-only pickup/resize mode.</p>
       <button id="enterVR">ENTER IMMERSIVE VR</button>
+      <a class="utility-link" href="./model-check.html">CHECK 3D MODEL FILES</a>
       <p class="status" id="landingStatus">Checking WebXR…</p>
       <div class="howto">
         <b>In-headset controls</b>
@@ -44,6 +46,6 @@
     </div>
   </section>
   <input id="fileInput" type="file" accept=".json,application/json" hidden>
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=0.9.4"></script>
 </body>
 </html>

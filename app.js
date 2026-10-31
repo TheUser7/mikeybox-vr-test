@@ -1,9 +1,9 @@
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js";
-import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/loaders/GLTFLoader.js";
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
-const SITE_VERSION = "ALPHA v0.9.3";
-const SITE_BUILD_ID = "2026.10.31-r5";
+const SITE_VERSION = "ALPHA v0.9.4";
+const SITE_BUILD_ID = "2026.10.31-r6";
 const UI_PANEL_FONT_SCALE = 1.28;
 const UI_BUTTON_FONT_SCALE = 1.22;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -25,16 +25,35 @@ const MODEL_ASSETS = new Map([
   ["item_hoverpad", "animal_company_-_hover_pad.glb"]
 ]);
 const gltfLoader = new GLTFLoader();
+gltfLoader.setCrossOrigin("anonymous");
 const gltfAssetPromises = new Map();
+const modelLoadStates = new Map();
+const MODEL_FOLDER_URL = new URL("./models/", import.meta.url);
 function getModelUrl(itemID) {
   const filename = MODEL_ASSETS.get(itemID);
-  return filename ? new URL(`./models/${filename}`, import.meta.url).href : null;
+  return filename ? new URL(encodeURIComponent(filename), MODEL_FOLDER_URL).href : null;
 }
-function loadModelTemplate(itemID) {
+async function loadModelTemplate(itemID) {
   const url = getModelUrl(itemID);
-  if (!url) return Promise.resolve(null);
+  if (!url) return null;
   if (!gltfAssetPromises.has(itemID)) {
-    const promise = gltfLoader.loadAsync(url).then((gltf) => gltf.scene).catch((error) => {
+    const filename = MODEL_ASSETS.get(itemID);
+    modelLoadStates.set(itemID, { state: "loading", filename, url });
+    const promise = (async () => {
+      // Fetch first so GitHub Pages 404s and non-GLB responses are reported
+      // clearly instead of being hidden inside GLTFLoader's XHR error.
+      const response = await fetch(url, { cache: "no-store", mode: "same-origin" });
+      if (!response.ok) throw new Error(`HTTP ${response.status} while requesting ${url}`);
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength < 20) throw new Error(`File is too small to be a valid GLB (${buffer.byteLength} bytes).`);
+      const magic = new DataView(buffer).getUint32(0, true);
+      if (magic !== 0x46546c67) throw new Error("The URL returned a file that is not binary glTF (GLB). Check that GitHub Pages is serving the .glb file, not an HTML page.");
+      const gltf = await gltfLoader.parseAsync(buffer, MODEL_FOLDER_URL.href);
+      if (!gltf.scene) throw new Error("The GLB parsed but did not contain a default scene.");
+      modelLoadStates.set(itemID, { state: "loaded", filename, url, bytes: buffer.byteLength });
+      return gltf.scene;
+    })().catch((error) => {
+      modelLoadStates.set(itemID, { state: "error", filename, url, error: String(error?.message || error) });
       gltfAssetPromises.delete(itemID);
       throw error;
     });
@@ -694,7 +713,10 @@ function drawItemCatalogPanel() {
   visible.forEach((entry, index) => {
     const col = index % 2;
     const row = Math.floor(index / 2);
-    const label = MODEL_ASSETS.has(entry.id) ? `${entry.name} · 3D` : entry.name;
+    const modelState = modelLoadStates.get(entry.id)?.state;
+    const label = MODEL_ASSETS.has(entry.id)
+      ? `${entry.name} · ${modelState === "loaded" ? "3D OK" : modelState === "error" ? "3D ERROR" : "3D"}`
+      : entry.name;
     addButton(label, `catalogPick:${entry.id}`, columns[col], rows[row], 0.78, 0.15, entry.id === pendingItemID ? "active" : "normal");
   });
   if (visible.length === 0) addPanelText("NO ITEMS IN THIS CATEGORY", 0, -0.25, 1.45, 0.10, 22, "#f0c6a5");
@@ -1122,7 +1144,8 @@ async function loadModelForNode(node, itemID) {
   } catch (error) {
     console.warn(`Could not load model for ${itemID} from ./models/${filename}`, error);
     if (nodes.includes(node) && node.item.itemID === itemID && node.modelRequestSerial === requestSerial) {
-      setStatus(`Couldn't load ${getItemDisplayName(itemID)}. Placeholder kept; check models/${filename}.`);
+      const reason = String(error?.message || error).replace(/https?:\/\/\S+/g, "model URL").slice(0, 105);
+      setStatus(`3D LOAD FAILED: ${getItemDisplayName(itemID)} · ${reason}`);
     }
   }
 }
@@ -1394,7 +1417,7 @@ function runAction(action) {
     itemCatalogOpen = false;
     const hasModel = MODEL_ASSETS.has(entry.id);
     setStatus(hasModel
-      ? `Next item: ${entry.name}. Its uploaded 3D model will load when placed.`
+      ? `Next item: ${entry.name}. The uploaded GLB will be checked when placed.`
       : `Next item: ${entry.name}. A placeholder preview will be used until a model is added.`);
     return;
   }

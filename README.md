@@ -131,3 +131,27 @@ The item catalog appends `· 3D` to these six entries. Their model files must st
 Other files in the user's model folder are intentionally not mapped into this build. The baseball bat, lance, pickaxe, and tele-grenade are omitted; the item catalog will continue to show safe placeholders for any unmapped entries.
 
 To add another permitted non-weapon prop later, upload its `.glb` to `models/` and add a catalog-ID-to-filename entry in `MODEL_ASSETS` near the top of `app.js`.
+
+## GLB loading repair and diagnostics (v0.9.4)
+
+This build uses the standard Three.js import-map layout for both `three` and `three/addons/`, then fetches each GLB from the site-relative `models/` folder before parsing it. That makes GitHub Pages HTTP errors visible instead of reducing every failure to a generic loader message. The app cache-busts `app.js` with `?v=0.9.4`.
+
+### Check your deployed models
+
+After publishing, open `model-check.html` from the same GitHub Pages site (or use the **CHECK 3D MODEL FILES** link on the landing page). The page fetches and parses each of the six mapped prop files and reports:
+
+- `OK` with mesh count and file size when the file fetches and parses.
+- `HTTP 404` when the file is not at the published path.
+- `Not a GLB` when the URL returns an HTML page or another file type.
+- A parse error when the GLB is found but its contents cannot be decoded.
+
+The six mapped prop files must remain in the repository-root `models/` folder, next to `index.html` and `app.js` (not inside `assets/` or a nested project folder). Keep these exact file names:
+
+- `animal_company_-_boombox.glb`
+- `animal_company_-_company_ration.glb`
+- `animal_company_-_crate.glb`
+- `animal_company_-_rubberducky.glb`
+- `animal_company_-_flashlight_mega.glb`
+- `animal_company_-_hover_pad.glb`
+
+This ZIP intentionally does not contain your six GLBs; keep the copies already uploaded to your GitHub repository. Upload the updated app files, the `model-check.html` file, and the updated `models/README.md`, without deleting your model files. After GitHub Pages finishes deploying, refresh the model-check page first. If all six show `OK` but the VR builder still uses placeholders, make sure its landing-page version badge says `ALPHA v0.9.4` and hard-refresh Quest Browser.
