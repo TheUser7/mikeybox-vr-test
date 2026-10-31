@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#101820">
+<title>Goop VR Builder</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div id="ui">
+  <header><div><b>GOOP VR BUILDER</b><small>Quest 3 · JSON prototype</small></div><span id="status">Ready</span></header>
+  <section class="toolbar">
+    <button id="enterVR" class="primary">Enter VR</button>
+    <button id="addRoot">New root</button>
+    <button id="addPart">Add part</button>
+    <button id="deletePart" class="danger">Delete</button>
+  </section>
+  <main>
+    <section class="panel">
+      <h2>Selected item</h2>
+      <label>Item ID<input id="itemID" value="item_crate" autocapitalize="off" spellcheck="false"></label>
+      <div class="grid2">
+        <label>X <input id="px" type="number" step="0.05" value="0"></label>
+        <label>Y <input id="py" type="number" step="0.05" value="0"></label>
+        <label>Z <input id="pz" type="number" step="0.05" value="0"></label>
+        <label>Scale modifier <input id="scale" type="number" min="-128" max="127" value="0"></label>
+      </div>
+      <button id="apply" class="wide">Apply changes</button>
+      <p class="hint">Tap a block in the scene to select it. Add part attaches a new child to the selected item.</p>
+    </section>
+    <section class="panel">
+      <h2>Build tree</h2>
+      <div id="tree">No build yet. Tap New root.</div>
+      <div class="grid2">
+        <button id="export" class="primary">Export JSON</button>
+        <button id="import">Import JSON</button>
+      </div>
+      <input id="fileInput" type="file" accept=".json,application/json" hidden>
+      <p class="hint">Export creates a native-style invention JSON file. Import an existing invention to continue editing.</p>
+    </section>
+  </main>
+  <footer>Prototype note: objects are placeholder shapes. Item models and exact per-prefab attachment poses are not included yet.</footer>
+</div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
