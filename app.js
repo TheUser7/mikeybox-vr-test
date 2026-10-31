@@ -3,13 +3,23 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.m
 const $ = (id) => document.getElementById(id);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9bb3c2);
-scene.fog = new THREE.Fog(0x9bb3c2, 10, 38);
+// A real sky mesh is more reliable than scene.background in immersive WebXR.
+// Some headset/browser combinations clear the XR framebuffer to black instead.
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(60, 32, 20),
+  new THREE.MeshBasicMaterial({ color: 0x91b6cc, side: THREE.BackSide, depthWrite: false })
+);
+sky.renderOrder = -100;
+scene.add(sky);
 
 const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.01, 100);
 camera.position.set(0, 1.65, 2.4);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.setClearColor(0x9bb3c2, 1);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType("local-floor");
 document.body.appendChild(renderer.domElement);
@@ -20,7 +30,7 @@ sun.position.set(4, 8, 5);
 scene.add(sun);
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(50, 50),
-  new THREE.MeshStandardMaterial({ color: 0x657a83, roughness: 1 })
+  new THREE.MeshBasicMaterial({ color: 0x657a83 })
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.03;
@@ -39,6 +49,7 @@ let keyboardDraft = "item_crate";
 let keyboardOpen = false;
 let statusText = "Enter VR, then point and trigger the floating controls.";
 let panelReady = false;
+let pendingPanelRecenter = false;
 const controllers = [];
 const dragStates = new Map();
 const raycaster = new THREE.Raycaster();
@@ -120,7 +131,7 @@ function addButton(label, action, x, y, width = 0.34, height = 0.15, tone = "nor
   const [base, edge] = tones[tone] || tones.normal;
   const button = new THREE.Mesh(
     new THREE.BoxGeometry(width, height, 0.045),
-    new THREE.MeshStandardMaterial({ color: base, roughness: 0.8, metalness: 0.05 })
+    new THREE.MeshBasicMaterial({ color: base })
   );
   button.position.set(x, y, 0.035);
   button.userData.action = action;
@@ -233,7 +244,7 @@ function syncMesh(node) {
 }
 function makeVisual(node) {
   const geo = new THREE.BoxGeometry(0.28, 0.28, 0.28);
-  const mat = new THREE.MeshStandardMaterial({ color: colorFor(node.item.itemID), roughness: 0.65 });
+  const mat = new THREE.MeshBasicMaterial({ color: colorFor(node.item.itemID) });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.userData.node = node;
   mesh.castShadow = true;
@@ -500,7 +511,8 @@ function setupController(index) {
   const controller = renderer.xr.getController(index);
   scene.add(controller);
   const lineGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -5)]);
-  const line = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({ color: 0x123c50 }));
+  const line = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({ color: 0x44ffcc }));
+  line.frustumCulled = false;
   controller.add(line);
   controller.addEventListener("selectstart", () => onTrigger(controller));
   controller.addEventListener("squeezestart", () => beginDrag(controller));
@@ -513,17 +525,36 @@ setupController(0);
 setupController(1);
 
 function recenterPanel() {
+  // Wait for an XR animation frame before reading the headset pose. Immediately
+  // after requestSession(), some browsers still return an identity/stale pose.
+  if (renderer.xr.isPresenting) {
+    pendingPanelRecenter = true;
+    setStatus("Placing the menu in front of your headset…");
+    return;
+  }
+  // Desktop preview placement (the actual editor controls are still VR-only).
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  panel.position.copy(camera.position).addScaledVector(forward, 1.25);
+  panel.position.y -= 0.12;
+  panel.quaternion.copy(camera.quaternion);
+  panelReady = true;
+  redrawPanel();
+  setStatus("Menu positioned.");
+}
+function placePanelFromHeadset() {
   const xrCamera = renderer.xr.getCamera(camera);
   xrCamera.updateMatrixWorld(true);
   const worldPosition = new THREE.Vector3().setFromMatrixPosition(xrCamera.matrixWorld);
-  const worldQuaternion = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(xrCamera.matrixWorld));
+  const worldQuaternion = new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().extractRotation(xrCamera.matrixWorld)
+  );
   const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuaternion);
   panel.position.copy(worldPosition).addScaledVector(forward, 1.25);
   panel.position.y -= 0.12;
   panel.quaternion.copy(worldQuaternion);
   panelReady = true;
+  pendingPanelRecenter = false;
   redrawPanel();
-  setStatus("Menu moved in front of you.");
 }
 
 $("enterVR").addEventListener("click", async () => {
@@ -537,13 +568,22 @@ $("enterVR").addEventListener("click", async () => {
     const session = await navigator.xr.requestSession("immersive-vr", {
       optionalFeatures: ["local-floor", "bounded-floor"]
     });
+    // The desktop preview camera has an offset; clear it so the headset pose
+    // is the only camera transform while rendering inside WebXR.
+    camera.position.set(0, 0, 0);
+    camera.quaternion.identity();
+    camera.updateMatrixWorld(true);
     await renderer.xr.setSession(session);
     $("landing").hidden = true;
     panel.visible = true;
-    recenterPanel();
-    setStatus("VR ready. Use trigger for the menu and grip to grab objects.");
+    pendingPanelRecenter = true;
+    setStatus("VR started. Placing the floating editor menu…");
     session.addEventListener("end", () => {
       panel.visible = false;
+      pendingPanelRecenter = false;
+      camera.position.set(0, 1.65, 2.4);
+      camera.quaternion.identity();
+      camera.updateMatrixWorld(true);
       $("landing").hidden = false;
       setStatus("VR session ended. Your current build is still in this page.");
     });
@@ -569,6 +609,10 @@ addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 renderer.setAnimationLoop(() => {
+  if (pendingPanelRecenter && renderer.xr.isPresenting) {
+    placePanelFromHeadset();
+    setStatus("VR ready. Point + trigger to use the menu; grip to grab objects.");
+  }
   updateDrags();
   renderer.render(scene, camera);
 });
