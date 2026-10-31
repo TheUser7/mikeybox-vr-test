@@ -35,6 +35,9 @@ Experimental Quest Browser / WebXR prototype. All editing happens inside immersi
 - Point and press trigger to select menu controls or objects.
 - Point at an XYZ arrow or rotation ring and hold grip/squeeze to manipulate it.
 - Hold grip near a part itself to freely move it.
+- Left thumbstick moves the selected part on the world X/Z plane; push forward to move toward negative Z.
+- Right thumbstick up/down adjusts the selected part vertically on world Y; its horizontal axis is reserved for a future control.
+- Joystick movement respects the custom position grid when position snapping is enabled.
 
 ## Sound effects
 

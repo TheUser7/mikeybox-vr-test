@@ -67,6 +67,10 @@ let panelReady = false;
 let leftHandGrip = null;
 let leftHandMenuActive = false;
 const controllerRecords = [];
+// Thumbstick translation is deliberately separate from hand/gizmo drags.
+// Left stick moves on the X/Z plane; right stick up/down adjusts world Y.
+const joystickConfig = { speed: 0.85, deadzone: 0.18 };
+const joystickState = { node: null, rawPosition: new THREE.Vector3(), active: false };
 const dragStates = new Map();
 const handPinchStates = new Map();
 const handDragStates = new Map();
@@ -288,9 +292,10 @@ function drawMainPanel() {
   addPanelText("SELECT A PART · USE THE 3D GIZMO", 0, -0.04, 1.48, 0.09, 26, "#a9c2cf");
   addPanelText("DOUBLE ARROWS · PUSH / PULL X Y Z", 0, -0.20, 1.50, 0.09, 22, "#ffcf8a");
   addPanelText("CIRCLES · TURN ROTATION X Y Z", 0, -0.34, 1.50, 0.09, 22, "#a9c2cf");
-  addButton("SCALE −", "scale:-1", -0.38, -0.57, 0.48, 0.15);
-  addButton("SCALE +", "scale:1", 0.15, -0.57, 0.48, 0.15);
-  addButton("SNAP SETTINGS", "snapSettings", 0, -0.80, 0.92, 0.13, "active");
+  addPanelText("JOYSTICKS · LEFT X/Z · RIGHT UP/DOWN Y", 0, -0.47, 1.55, 0.09, 20, "#a9c2cf");
+  addButton("SCALE −", "scale:-1", -0.38, -0.63, 0.48, 0.15);
+  addButton("SCALE +", "scale:1", 0.15, -0.63, 0.48, 0.15);
+  addButton("SNAP SETTINGS", "snapSettings", 0, -0.84, 0.92, 0.13, "active");
 }
 function drawSnapSettingsPanel() {
   clearPanel();
@@ -569,6 +574,8 @@ function disposeBuild() {
 }
 function choose(node) {
   selected = node;
+  joystickState.node = null;
+  joystickState.active = false;
   if (node) pendingItemID = node.item.itemID;
   updateTransformGizmo();
   redrawPanel();
@@ -942,6 +949,71 @@ function updateDrags() {
     applyObjectDrag(node, drag.grip, drag.offset);
   }
 }
+function applyStickDeadzone(value, deadzone) {
+  const magnitude = Math.abs(value);
+  if (magnitude <= deadzone) return 0;
+  return Math.sign(value) * ((magnitude - deadzone) / (1 - deadzone));
+}
+function getThumbstickAxes(inputSource) {
+  const gamepad = inputSource?.gamepad;
+  if (!gamepad?.axes) return { x: 0, y: 0 };
+  const axes = gamepad.axes;
+  // xr-standard reserves axes[2]/[3] for the thumbstick when a touchpad
+  // is also exposed; on simpler mappings the first pair is the stick.
+  const pair = axes.length >= 4 ? 2 : 0;
+  return {
+    x: applyStickDeadzone(Number(axes[pair] || 0), joystickConfig.deadzone),
+    y: applyStickDeadzone(Number(axes[pair + 1] || 0), joystickConfig.deadzone)
+  };
+}
+function updateJoystickMovement(deltaSeconds) {
+  if (!renderer.xr.isPresenting || !selected || !nodes.includes(selected)) {
+    joystickState.node = null;
+    joystickState.active = false;
+    return;
+  }
+  // Do not let a stick fight with a hand grab or controller gizmo drag.
+  if (dragStates.size || handDragStates.size || keyboardOpen || snapValueKeyboardOpen) {
+    joystickState.node = null;
+    joystickState.active = false;
+    return;
+  }
+  const session = renderer.xr.getSession();
+  const sources = Array.from(session?.inputSources || []);
+  const leftSource = sources.find((source) => source.handedness === "left" && source.gamepad);
+  const rightSource = sources.find((source) => source.handedness === "right" && source.gamepad);
+  if (!leftSource && !rightSource) {
+    joystickState.node = null;
+    joystickState.active = false;
+    return;
+  }
+
+  const left = getThumbstickAxes(leftSource);
+  const right = getThumbstickAxes(rightSource);
+  // XR axes use -1 for up. Left stick: X/Z; right stick vertical: world Y.
+  const move = new THREE.Vector3(left.x, -right.y, left.y);
+  const isMoving = move.lengthSq() > 0.0001;
+  if (!isMoving) {
+    if (joystickState.active && snapConfig.positionEnabled) playSfx("snapIn");
+    joystickState.active = false;
+    joystickState.node = null;
+    return;
+  }
+  if (joystickState.node !== selected) {
+    selected.group.updateWorldMatrix(true, false);
+    joystickState.rawPosition.copy(selected.group.getWorldPosition(new THREE.Vector3()));
+    joystickState.node = selected;
+  }
+  if (!joystickState.active && snapConfig.positionEnabled) playSfx("snapOut");
+  joystickState.active = true;
+
+  const dt = THREE.MathUtils.clamp(Number(deltaSeconds) || 0, 0, 0.05);
+  if (dt <= 0) return;
+  joystickState.rawPosition.addScaledVector(move, joystickConfig.speed * dt);
+  const displayPosition = snapWorldPosition(joystickState.rawPosition.clone());
+  setNodeWorldPosition(selected, displayPosition);
+}
+
 function attachPanelToLeftHand() {
   if (!leftHandGrip) return false;
   leftHandGrip.add(panel);
@@ -1348,13 +1420,17 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+let previousFrameTime = 0;
 renderer.setAnimationLoop((time, xrFrame) => {
+  const deltaSeconds = previousFrameTime ? Math.min((time - previousFrameTime) / 1000, 0.05) : 0;
+  previousFrameTime = time;
   if (renderer.xr.isPresenting) {
     if (!leftHandMenuActive && !panel.visible) refreshLeftHandAttachment();
     updateHandTracking(xrFrame);
     updateControllerHover();
   }
   updateDrags();
+  if (renderer.xr.isPresenting) updateJoystickMovement(deltaSeconds);
   renderer.render(scene, camera);
 });
 setStatus(statusText);
