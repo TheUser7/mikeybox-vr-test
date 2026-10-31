@@ -48,8 +48,18 @@ The four user-provided OGG files are in `assets/`:
 - `snapOut.ogg`: starting to move away from a snapped placement or disabling a snap mode.
 - `snapIn.ogg`: enabling a snap mode or releasing a snapped placement.
 
-Audio is loaded from the relative `assets/` folder after pressing **ENTER IMMERSIVE VR**. The browser must allow audio playback.
+Audio URLs are resolved relative to `app.js` (so they work under a GitHub Pages repository path). The builder uses Web Audio when available and falls back to HTMLAudio playback if decoding/resume fails.
 
 ## Limitations
 
 This is an alpha prototype. It uses placeholder cubes, not Animal Company models. Item IDs must be entered manually. The generated JSON structure has not been verified in the live game. WebXR requires an HTTPS page. The rotation-center fix, snapping, audio playback, and hand/controller interactions still need testing on a physical Quest 3.
+
+
+## Rotation and audio reliability changes
+
+- Rotation uses accumulated frame-to-frame angular movement, avoiding wraparound jumps when the hand crosses the 180-degree boundary.
+- The selected part's original world-space center is restored on every rotation frame.
+- Rotation rings have a wider invisible pick surface to make them easier to target with Quest controllers.
+- SFX URLs use `import.meta.url`, preventing the assets path from incorrectly resolving to the domain root on GitHub Pages.
+- Web Audio playback has an HTMLAudio fallback.
+- **TEST SFX** on the Snap Settings panel plays all four supplied sounds in sequence.

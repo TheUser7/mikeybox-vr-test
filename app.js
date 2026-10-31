@@ -129,12 +129,31 @@ worldAxes.forEach((axis, index) => {
     addGizmoMesh(tip, { kind: "translate", axis, axisIndex: index });
   });
 
+  const rotateHandle = { kind: "rotate", axis, axisIndex: index };
   const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.49, 0.012, 8, 96),
-    new THREE.MeshBasicMaterial({ color, depthTest: true })
+    new THREE.TorusGeometry(0.53, 0.019, 12, 128),
+    new THREE.MeshBasicMaterial({ color, depthTest: false, side: THREE.DoubleSide })
   );
   ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
-  addGizmoMesh(ring, { kind: "rotate", axis, axisIndex: index });
+  ring.renderOrder = 5;
+  addGizmoMesh(ring, rotateHandle);
+
+  // Separate, much wider hit target. It is invisible but still raycastable,
+  // which makes the rotation rings practical to grab with Quest controllers.
+  const ringPicker = new THREE.Mesh(
+    new THREE.TorusGeometry(0.53, 0.095, 10, 96),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      colorWrite: false,
+      depthWrite: false,
+      depthTest: false,
+      side: THREE.DoubleSide
+    })
+  );
+  ringPicker.quaternion.copy(ring.quaternion);
+  addGizmoMesh(ringPicker, rotateHandle);
 
   const axisLabel = new THREE.Sprite(new THREE.SpriteMaterial({
     map: makeCanvasTexture(["X", "Y", "Z"][index], { width: 128, height: 128, fontSize: 100, color: "#ffffff" }),
@@ -313,7 +332,8 @@ function drawSnapSettingsPanel() {
   addButton("ANGLE −", "rotationStepDown", -0.49, -0.71, 0.38, 0.13);
   addButton("CUSTOM", "rotationStepCustom", 0, -0.71, 0.38, 0.13, "active");
   addButton("ANGLE +", "rotationStepUp", 0.49, -0.71, 0.38, 0.13);
-  addButton("BACK", "snapBack", 0, -0.89, 0.56, 0.11, "muted");
+  addButton("TEST SFX", "testSfx", -0.42, -0.89, 0.70, 0.11, "active");
+  addButton("BACK", "snapBack", 0.42, -0.89, 0.70, 0.11, "muted");
 }
 function drawSnapValueKeyboard() {
   clearPanel();
@@ -365,45 +385,108 @@ function setStatus(text) {
 }
 
 const SFX_FILES = {
-  snapIn: "./assets/snapIn.ogg",
-  snapOut: "./assets/snapOut.ogg",
-  click: "./assets/UI_Click.ogg",
-  hover: "./assets/UI_Hover.ogg"
+  snapIn: new URL("./assets/snapIn.ogg", import.meta.url).href,
+  snapOut: new URL("./assets/snapOut.ogg", import.meta.url).href,
+  click: new URL("./assets/UI_Click.ogg", import.meta.url).href,
+  hover: new URL("./assets/UI_Hover.ogg", import.meta.url).href
 };
+const htmlAudio = Object.create(null);
+let audioFailures = [];
 function warmAudio() {
+  // HTMLAudio is kept as a fallback for Quest Browser builds where WebAudio
+  // decode/resume can fail or autoplay rules differ during an XR session.
+  for (const [name, url] of Object.entries(SFX_FILES)) {
+    if (!htmlAudio[name]) {
+      const audio = new Audio(url);
+      audio.preload = "auto";
+      audio.playsInline = true;
+      audio.volume = name === "hover" ? 0.7 : 0.85;
+      audio.load();
+      htmlAudio[name] = audio;
+    }
+  }
+
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) return;
+  if (!AudioCtx) {
+    audioLoadPromise = Promise.resolve();
+    return audioLoadPromise;
+  }
   if (!audioContext) audioContext = new AudioCtx();
-  audioContext.resume().catch(() => {});
+  // This is called synchronously from ENTER VR, while the page still has the
+  // user's activation. Quest may suspend the context later, so playSfx resumes
+  // it again whenever a sound is requested.
+  audioContext.resume().catch((error) => console.warn("AudioContext resume failed:", error));
   if (!audioLoadPromise) {
     audioLoadPromise = Promise.all(Object.entries(SFX_FILES).map(async ([name, url]) => {
       try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Could not load ${url}`);
+        const response = await fetch(url, { cache: "force-cache" });
+        if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
         const bytes = await response.arrayBuffer();
         audioBuffers[name] = await audioContext.decodeAudioData(bytes);
       } catch (error) {
-        console.warn(`Sound unavailable: ${name}`, error);
+        audioFailures.push(name);
+        console.warn(`WebAudio sound decode unavailable for ${name}; HTMLAudio fallback will be used.`, error);
       }
     }));
   }
+  return audioLoadPromise;
+}
+function playDecodedSfx(name) {
+  if (!audioContext || !audioBuffers[name]) return false;
+  const start = () => {
+    try {
+      const source = audioContext.createBufferSource();
+      const gain = audioContext.createGain();
+      gain.gain.value = name === "hover" ? 0.7 : 0.85;
+      source.buffer = audioBuffers[name];
+      source.connect(gain);
+      gain.connect(audioContext.destination);
+      source.start(0);
+    } catch (error) {
+      console.warn(`WebAudio playback failed for ${name}:`, error);
+      playHtmlAudio(name);
+    }
+  };
+  if (audioContext.state === "running") start();
+  else audioContext.resume().then(start).catch((error) => {
+    console.warn(`Could not resume WebAudio for ${name}:`, error);
+    playHtmlAudio(name);
+  });
+  return true;
+}
+function playHtmlAudio(name) {
+  const template = htmlAudio[name];
+  if (!template) return false;
+  try {
+    // Reuse the unlocked audio element. It is reset for each sound, which is
+    // more reliable on Quest than cloning a fresh media element every time.
+    template.pause();
+    template.currentTime = 0;
+    const result = template.play();
+    if (result && typeof result.catch === "function") {
+      result.catch((error) => {
+        console.warn(`HTMLAudio playback blocked for ${name}:`, error);
+        // If HTMLAudio is blocked but WebAudio decoded successfully, fall back.
+        if (audioBuffers[name] && audioContext) playDecodedSfx(name);
+      });
+    }
+    return true;
+  } catch (error) {
+    console.warn(`HTMLAudio playback failed for ${name}:`, error);
+    return false;
+  }
 }
 function playSfx(name) {
-  if (!audioContext) return;
-  audioContext.resume().catch(() => {});
-  const start = () => {
-    const buffer = audioBuffers[name];
-    if (!buffer || !audioContext) return;
-    const source = audioContext.createBufferSource();
-    const gain = audioContext.createGain();
-    gain.gain.value = name === "hover" ? 0.7 : 0.85;
-    source.buffer = buffer;
-    source.connect(gain);
-    gain.connect(audioContext.destination);
-    source.start(0);
-  };
-  if (audioBuffers[name]) start();
-  else if (audioLoadPromise) audioLoadPromise.then(start);
+  if (audioContext && audioBuffers[name]) {
+    playDecodedSfx(name);
+    return;
+  }
+  const htmlStarted = playHtmlAudio(name);
+  // While the first load is still decoding, queue a WebAudio fallback only if
+  // the media-element attempt cannot play. Do not intentionally double-play.
+  if (!htmlStarted && audioLoadPromise) {
+    audioLoadPromise.then(() => playDecodedSfx(name));
+  }
 }
 function setHoveredButton(button) {
   if (button !== lastHoveredButton) {
@@ -672,6 +755,16 @@ function runAction(action) {
   if (action.startsWith("key") || action.startsWith("key:")) { handleKeyboardAction(action); return; }
   if (action.startsWith("snapKey") || action.startsWith("snapKey:")) { handleSnapValueAction(action); return; }
   if (snapValueKeyboardOpen) return;
+  if (action === "testSfx") {
+    // Plays the four supplied clips in sequence so the user can verify that
+    // every asset is being found and that Quest Browser audio is unlocked.
+    playSfx("hover");
+    setTimeout(() => playSfx("click"), 180);
+    setTimeout(() => playSfx("snapOut"), 360);
+    setTimeout(() => playSfx("snapIn"), 540);
+    setStatus("Sound test: hover, click, snap-out, snap-in.");
+    return;
+  }
   if (action === "snapSettings") {
     snapSettingsOpen = true;
     redrawPanel();
@@ -769,7 +862,7 @@ function findGizmoHandleAtPoint(point) {
     if (handle.kind === "translate") {
       const closest = closestPointOnAxisSegment(point, center, axis, -0.70, 0.70);
       distance = point.distanceTo(closest);
-      if (distance < 0.105 && distance < bestDistance) {
+      if (distance < 0.14 && distance < bestDistance) {
         best = handle;
         bestDistance = distance;
       }
@@ -777,8 +870,8 @@ function findGizmoHandleAtPoint(point) {
       const relative = point.clone().sub(center);
       const axial = relative.dot(axis);
       const radial = relative.addScaledVector(axis, -axial).length();
-      distance = Math.hypot(axial, radial - 0.49);
-      if (distance < 0.11 && distance < bestDistance) {
+      distance = Math.hypot(axial, radial - 0.53);
+      if (distance < 0.19 && distance < bestDistance) {
         best = handle;
         bestDistance = distance;
       }
@@ -796,6 +889,11 @@ function ringAngle(point, center, axis) {
   const relative = point.clone().sub(center);
   return Math.atan2(relative.dot(v), relative.dot(u));
 }
+function wrapAngleDelta(angle) {
+  while (angle > Math.PI) angle -= Math.PI * 2;
+  while (angle < -Math.PI) angle += Math.PI * 2;
+  return angle;
+}
 function makeGizmoDrag(node, handle, startPoint) {
   const parent = node.group.parent;
   parent.updateWorldMatrix(true, false);
@@ -805,17 +903,20 @@ function makeGizmoDrag(node, handle, startPoint) {
   const inverseParentWorldMatrix = parent.matrixWorld.clone().invert();
   const startWorldPosition = node.group.getWorldPosition(new THREE.Vector3());
   const startWorldQuaternion = node.group.getWorldQuaternion(new THREE.Quaternion());
+  const initialAngle = handle.kind === "rotate" ? ringAngle(startPoint, startWorldPosition, handle.axis) : 0;
   return {
     mode: "gizmo", node, handle,
-    axis: handle.axis.clone(),
-    center: startWorldPosition,
+    axis: handle.axis.clone().normalize(),
+    center: startWorldPosition.clone(),
     startPoint: startPoint.clone(),
     startPosition: node.position.clone(),
     startQuaternion: node.quaternion.clone(),
+    startWorldPosition: startWorldPosition.clone(),
     startWorldQuaternion,
     inverseParentWorldQuaternion,
     inverseParentWorldMatrix,
-    startAngle: handle.kind === "rotate" ? ringAngle(startPoint, startWorldPosition, handle.axis) : 0
+    lastAngle: initialAngle,
+    accumulatedAngle: 0
   };
 }
 function applyGizmoDrag(drag, point) {
@@ -826,18 +927,29 @@ function applyGizmoDrag(drag, point) {
     desiredWorldPosition = snapWorldPosition(desiredWorldPosition);
     drag.node.position.copy(desiredWorldPosition.applyMatrix4(drag.inverseParentWorldMatrix));
   } else {
-    let angle = ringAngle(point, drag.center, drag.axis) - drag.startAngle;
-    while (angle > Math.PI) angle -= Math.PI * 2;
-    while (angle < -Math.PI) angle += Math.PI * 2;
+    // Track small per-frame angular changes instead of comparing only against
+    // the original angle. This prevents angle-wrap jumps at +/-180 degrees.
+    const currentAngle = ringAngle(point, drag.center, drag.axis);
+    const angularDelta = wrapAngleDelta(currentAngle - drag.lastAngle);
+    if (Number.isFinite(angularDelta)) drag.accumulatedAngle += angularDelta;
+    drag.lastAngle = currentAngle;
+
+    let appliedAngle = drag.accumulatedAngle;
     if (snapConfig.rotationEnabled) {
-      angle = roundToStep(angle, THREE.MathUtils.degToRad(snapConfig.rotationStepDegrees));
+      const step = THREE.MathUtils.degToRad(snapConfig.rotationStepDegrees);
+      appliedAngle = roundToStep(appliedAngle, step);
     }
-    const worldRotation = new THREE.Quaternion().setFromAxisAngle(drag.axis, angle);
-    const desiredWorldQuaternion = worldRotation.multiply(drag.startWorldQuaternion.clone()).normalize();
-    drag.node.quaternion.copy(drag.inverseParentWorldQuaternion.clone().multiply(desiredWorldQuaternion)).normalize();
-    // Rotation is around the part's own origin: explicitly restore its original
-    // world-space center so rotating never makes the part translate or orbit.
-    drag.node.position.copy(drag.center.clone().applyMatrix4(drag.inverseParentWorldMatrix));
+    const worldDelta = new THREE.Quaternion().setFromAxisAngle(drag.axis, appliedAngle);
+    const desiredWorldQuaternion = worldDelta.multiply(drag.startWorldQuaternion.clone()).normalize();
+    drag.node.quaternion.copy(
+      drag.inverseParentWorldQuaternion.clone().multiply(desiredWorldQuaternion).normalize()
+    );
+
+    // Hard-lock the original world-space pivot for every rotation frame.
+    // The gizmo may rotate the orientation, but must never translate/orbit it.
+    drag.node.position.copy(
+      drag.startWorldPosition.clone().applyMatrix4(drag.inverseParentWorldMatrix)
+    );
   }
   syncMesh(drag.node);
 }
@@ -853,6 +965,7 @@ function beginHandGizmoDrag(input, proxy, handle) {
   return true;
 }
 function getControllerRay(controller) {
+  controller.updateMatrixWorld(true);
   tempMatrix.identity().extractRotation(controller.matrixWorld);
   raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
   raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
@@ -1372,6 +1485,9 @@ $("enterVR").addEventListener("click", async () => {
     camera.quaternion.identity();
     camera.updateMatrixWorld(true);
     await renderer.xr.setSession(session);
+    // The initial button click warms audio; resume once more after the XR
+    // session is active because some Quest Browser versions suspend it.
+    if (audioContext) audioContext.resume().catch((error) => console.warn("XR audio resume failed:", error));
     updateTransformGizmo();
     $("landing").hidden = true;
     panel.visible = false;
