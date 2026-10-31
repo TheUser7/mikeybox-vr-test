@@ -285,9 +285,11 @@ for (const y of [0.13, 0, -0.13]) {
 // circular rings rotate around X/Y/Z. Handles can be pinched directly.
 const transformGizmo = new THREE.Group();
 transformGizmo.visible = false;
-// Keep the gizmo in the same workspace transform as the parts so it remains
-// anchored to the selected object during joystick locomotion and world scaling.
-worldGroup.add(transformGizmo);
+// Keep the gizmo in scene space, not under worldGroup. It follows the selected
+// object's world-space position, while its one-world-unit size is independent
+// of the player's simulated scale and the workspace transform.
+scene.add(transformGizmo);
+const GIZMO_WORLD_SCALE = 1;
 const gizmoHandles = [];
 const gizmoPickMeshes = [];
 const gizmoAxisColors = [0xff6868, 0x76e29a, 0x69aaff];
@@ -392,18 +394,16 @@ function updateTransformGizmo() {
   worldGroup.updateWorldMatrix(true, false);
   selected.group.updateWorldMatrix(true, false);
 
-  // transformGizmo is a child of worldGroup, so store its position in the
-  // workspace's local coordinates. Its inverse parent rotation keeps the
-  // handles aligned to world XYZ instead of rotating with joystick snap-turns.
+  // The gizmo is a direct child of scene, so worldGroup scale cannot affect
+  // its dimensions. Follow only the selected object's world-space position;
+  // keep the handles aligned to fixed world XYZ and at a constant physical size.
   const selectedWorldPosition = selected.group.getWorldPosition(new THREE.Vector3());
-  transformGizmo.position.copy(worldGroup.worldToLocal(selectedWorldPosition));
-  const workspaceWorldQuaternion = worldGroup.getWorldQuaternion(new THREE.Quaternion());
-  transformGizmo.quaternion.copy(workspaceWorldQuaternion.invert());
-  // Counter-scale the gizmo so it stays a comfortable, constant size in the
-  // headset even when the user scales the whole workspace around themselves.
-  const workspaceScale = Math.max(0.0001, Math.abs(worldGroup.scale.x));
-  transformGizmo.scale.setScalar(1 / workspaceScale);
-  transformGizmo.visible = renderer.xr.isPresenting && gizmoEnabled;
+  // Since transformGizmo is a direct child of scene, this is the exact
+  // world-space target and its scale never inherits worldGroup scaling.
+  transformGizmo.position.copy(selectedWorldPosition);
+  transformGizmo.quaternion.identity();
+  transformGizmo.scale.setScalar(GIZMO_WORLD_SCALE);
+  transformGizmo.visible = Boolean(renderer.xr.isPresenting && gizmoEnabled);
   transformGizmo.updateMatrixWorld(true);
 }
 
@@ -579,13 +579,21 @@ function drawMainPanel() {
   addButton("EXPORT", "export", 0, 0.15, 0.48, 0.15, "good");
   addButton("IMPORT", "import", 0.53, 0.15, 0.48, 0.15);
 
-  addPanelText("SELECT A PART · USE THE 3D GIZMO", 0, -0.04, 1.48, 0.09, 26, "#a9c2cf");
-  addPanelText("DOUBLE ARROWS · PUSH / PULL X Y Z", 0, -0.20, 1.50, 0.09, 22, "#ffcf8a");
-  addPanelText("CIRCLES · TURN ROTATION X Y Z", 0, -0.34, 1.50, 0.09, 22, "#a9c2cf");
-  addPanelText("HOLD ITEM + BOTH GRIPS · SCALE ITEM", 0, -0.48, 1.55, 0.07, 17, "#a9c2cf");
-  addPanelText("EMPTY HANDS + BOTH GRIPS · RESIZE PLAYER + MOVE IN XYZ", 0, -0.56, 1.58, 0.07, 15, "#a9c2cf");
-  addButton("SCALE −", "scale:-1", -0.38, -0.68, 0.48, 0.15);
-  addButton("SCALE +", "scale:1", 0.15, -0.68, 0.48, 0.15);
+  if (gizmoEnabled) {
+    addPanelText("GIZMO ON · FULL EDIT MODE", 0, -0.04, 1.48, 0.09, 25, "#91e3c4");
+    addPanelText("ARROWS · MOVE XYZ", 0, -0.20, 1.50, 0.09, 23, "#ffcf8a");
+    addPanelText("CIRCLES · ROTATE XYZ", 0, -0.34, 1.50, 0.09, 23, "#a9c2cf");
+    addPanelText("HOLD ITEM + BOTH GRIPS · SCALE ITEM", 0, -0.49, 1.55, 0.07, 17, "#a9c2cf");
+    addPanelText("EMPTY HANDS + BOTH GRIPS · PLAYER SIZE", 0, -0.59, 1.55, 0.07, 16, "#a9c2cf");
+    addButton("SCALE −", "scale:-1", -0.38, -0.73, 0.48, 0.13);
+    addButton("SCALE +", "scale:1", 0.15, -0.73, 0.48, 0.13);
+  } else {
+    addPanelText("GIZMO OFF · OBJECT-ONLY MODE", 0, -0.04, 1.48, 0.09, 25, "#91e3c4");
+    addPanelText("HOLD ONE GRIP NEAR A PART TO PICK IT UP", 0, -0.22, 1.55, 0.08, 19, "#ffcf8a");
+    addPanelText("KEEP HOLDING · GRIP WITH OTHER HAND", 0, -0.37, 1.55, 0.08, 19, "#a9c2cf");
+    addPanelText("PULL APART / PUSH TOGETHER TO RESIZE", 0, -0.51, 1.55, 0.08, 19, "#a9c2cf");
+    addPanelText("PLAYER SCALING + GIZMO HANDLES DISABLED", 0, -0.65, 1.58, 0.07, 15, "#dfb18b");
+  }
   addButton("SNAP SETTINGS", "snapSettings", 0, -0.87, 0.92, 0.11, "active");
 }
 function drawSnapSettingsPanel() {
@@ -848,7 +856,7 @@ function setNodeWorldPosition(node, worldPosition) {
   node.position.copy(worldPosition.clone().applyMatrix4(inverseParent));
   syncMesh(node);
 }
-function applyObjectDrag(node, proxy, offset) {
+function applyObjectDrag(node, proxy, offset, lockedLocalQuaternion = null) {
   const desiredWorld = new THREE.Matrix4().copy(proxy.matrixWorld).multiply(offset);
   const worldPosition = new THREE.Vector3();
   const worldQuaternion = new THREE.Quaternion();
@@ -861,7 +869,10 @@ function applyObjectDrag(node, proxy, offset) {
   parent.updateWorldMatrix(true, false);
   const local = parent.matrixWorld.clone().invert().multiply(desiredWorld);
   local.decompose(node.position, node.quaternion, new THREE.Vector3());
-  if (snapConfig.rotationEnabled) node.quaternion.copy(snapLocalEuler(node.quaternion));
+  // In B/gizmo-off object-only mode, a direct pickup moves the item with the
+  // controller but does not twist it. Rotation is available again with B on.
+  if (lockedLocalQuaternion) node.quaternion.copy(lockedLocalQuaternion);
+  else if (snapConfig.rotationEnabled) node.quaternion.copy(snapLocalEuler(node.quaternion));
   node.group.position.copy(node.position);
   node.group.quaternion.copy(node.quaternion);
   updateTransformGizmo();
@@ -1184,6 +1195,7 @@ function runAction(action) {
   } else if (action.startsWith("rotate:")) {
     nudgeRotate(Number(action.split(":")[1]));
   } else if (action.startsWith("scale:")) {
+    if (!gizmoEnabled) { setStatus("Gizmo off: pick up the item and use both controller grips to resize it."); return; }
     if (!selected) { setStatus("Select an item first."); return; }
     selected.item.scaleModifier = Math.max(-127, Math.min(127, Number(selected.item.scaleModifier || 0) + Number(action.split(":")[1])));
     syncMesh(selected);
@@ -1324,6 +1336,11 @@ function pickNode(controller) {
   return hits.length ? hits[0].object.userData.node : null;
 }
 function pickGizmoHandle(controller) {
+  // Explicitly disable picking while B/object-only mode is active. Three.js
+  // raycasting may still hit child meshes under a hidden parent, so relying on
+  // transformGizmo.visible alone can let invisible handles steal object grabs.
+  if (!gizmoEnabled || !transformGizmo.visible || !selected) return null;
+  transformGizmo.updateMatrixWorld(true);
   getControllerRay(controller);
   const hits = raycaster.intersectObjects(gizmoPickMeshes, false);
   return hits.length ? hits[0] : null;
@@ -1371,9 +1388,9 @@ function nearestNodeToHand(grip, maxSurfaceDistance = 0.38) {
   return nearest;
 }
 function beginDrag(rayController, grip) {
-  // Prefer a visible transform handle. Aim at an arrow/ring and hold grip to
-  // push/pull the axis or turn the ring with the controller hand.
-  const gizmoHit = pickGizmoHandle(rayController);
+  // In full-edit mode, a visible gizmo handle has priority. In B/object-only
+  // mode, never test gizmo pickers: hold grip near the actual part to grab it.
+  const gizmoHit = gizmoEnabled ? pickGizmoHandle(rayController) : null;
   if (gizmoHit && selected) {
     grip.updateMatrixWorld(true);
     const gripPosition = new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld);
@@ -1388,11 +1405,11 @@ function beginDrag(rayController, grip) {
   }
   // Grab the closest part to the tracked controller grip, rather than dragging
   // from the controller's aim-ray pose. This makes the part follow hand motion.
-  let node = nearestNodeToHand(grip);
+  let node = nearestNodeToHand(grip, gizmoEnabled ? 0.48 : 0.68);
   if (!node && selected) {
     grip.updateMatrixWorld(true);
     const handPosition = new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld);
-    if (nodeGrabSurfaceDistance(selected, handPosition) < 0.48) node = selected;
+    if (nodeGrabSurfaceDistance(selected, handPosition) < (gizmoEnabled ? 0.60 : 0.82)) node = selected;
   }
   if (!node) {
     setStatus("Move your controller hand close to a part, then hold the grip button to pick it up.");
@@ -1401,7 +1418,10 @@ function beginDrag(rayController, grip) {
   grip.updateMatrixWorld(true);
   node.group.updateMatrixWorld(true);
   const offset = grip.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
-  dragStates.set(rayController, { mode: "object", node, grip, offset });
+  dragStates.set(rayController, {
+    mode: "object", node, grip, offset,
+    lockedLocalQuaternion: gizmoEnabled ? null : node.quaternion.clone()
+  });
   if (snapConfig.positionEnabled || snapConfig.rotationEnabled) playSfx("snapOut");
   choose(node);
   setStatus(`Holding ${node.item.itemID}. Move your controller hand; release grip to place it.`);
@@ -1417,7 +1437,7 @@ function updateDrags() {
       applyGizmoDrag(drag, gripPosition.add(drag.pointerOffset));
       continue;
     }
-    applyObjectDrag(node, drag.grip, drag.offset);
+    applyObjectDrag(node, drag.grip, drag.offset, drag.lockedLocalQuaternion);
   }
 }
 function controllerGripWorldPosition(record) {
@@ -1449,12 +1469,15 @@ function isControllerGripHeld(record) {
   return Boolean(record.squeezePressed || squeezeButton?.pressed || (Number(squeezeButton?.value) || 0) >= 0.65);
 }
 function findHeldObjectDrag() {
-  // Item scaling is allowed only when a controller is already gripping an
-   // actual object. Merely having an item selected is not enough.
+  // Item scaling requires an active physical grab, never mere selection.
+  // Prefer the selected part if both controllers happen to hold objects.
+  let fallback = null;
   for (const drag of dragStates.values()) {
-    if (drag && drag.mode === "object" && drag.node && nodes.includes(drag.node)) return drag;
+    if (!drag || drag.mode !== "object" || !drag.node || !nodes.includes(drag.node)) continue;
+    if (drag.node === selected) return drag;
+    fallback ||= drag;
   }
-  return null;
+  return fallback;
 }
 function tryBeginTwoHandScale() {
   if (twoHandScaleState || scaleGestureNeedsRelease) return false;
@@ -1468,9 +1491,16 @@ function tryBeginTwoHandScale() {
   if (!Number.isFinite(startDistance) || startDistance < 0.08) return false;
 
   const heldObjectDrag = findHeldObjectDrag();
-  // Both grips on an actual held object mean item scaling; without an object
-  // held, both grips always scale the workspace/player (even if a gizmo was
-  // previously grabbed with one controller).
+  // With B/gizmo OFF, this becomes object-only mode: two grips must belong to
+  // an object already picked up with one controller. Empty-hand grips never
+  // resize or move the player/workspace in this mode.
+  if (!gizmoEnabled && !heldObjectDrag) {
+    setStatus("OBJECT-ONLY MODE: grab an item with one controller first, keep holding it, then squeeze the other controller to resize it. The hidden gizmo cannot intercept grabs.");
+    return false;
+  }
+
+  // Both grips on an actual held object mean item scaling; with the gizmo on,
+  // empty hands can still invoke player scaling.
   dragStates.delete(leftRecord.controller);
   dragStates.delete(rightRecord.controller);
 
@@ -1752,7 +1782,17 @@ function setupController(index) {
   controller.addEventListener("selectstart", () => onTrigger(controller));
   controller.addEventListener("squeezestart", () => {
     record.squeezePressed = true;
-    if (!tryBeginTwoHandScale()) beginDrag(controller, grip);
+    if (tryBeginTwoHandScale()) return;
+    const bothControllersHeld = controllerRecords.length >= 2
+      && controllerRecords.every((candidate) => isControllerGripHeld(candidate));
+    if (!gizmoEnabled && bothControllersHeld) {
+      if (!findHeldObjectDrag()) {
+        setStatus("Gizmo off: pick up an object with one controller first, then hold the other grip to resize it.");
+      }
+      // Do not start player scaling or accidentally grab a second item.
+      return;
+    }
+    beginDrag(controller, grip);
   });
   controller.addEventListener("squeezeend", () => {
     record.squeezePressed = false;
@@ -2010,7 +2050,10 @@ function updateHandTracking(xrFrame) {
         if (node) {
           node.group.updateMatrixWorld(true);
           const offset = proxy.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
-          handDragStates.set(input, { mode: "object", node, proxy, offset });
+          handDragStates.set(input, {
+            mode: "object", node, proxy, offset,
+            lockedLocalQuaternion: gizmoEnabled ? null : node.quaternion.clone()
+          });
           if (snapConfig.positionEnabled || snapConfig.rotationEnabled) playSfx("snapOut");
           choose(node);
           setStatus(`Pinching ${node.item.itemID}. Move your hand; release your fingers to place it.`);
@@ -2049,7 +2092,7 @@ function updateHandTracking(xrFrame) {
       applyGizmoDrag(drag, drag.proxy.position);
       continue;
     }
-    applyObjectDrag(drag.node, drag.proxy, drag.offset);
+    applyObjectDrag(drag.node, drag.proxy, drag.offset, drag.lockedLocalQuaternion);
   }
 }
 
@@ -2098,11 +2141,12 @@ function updateRightControllerBGizmoToggle() {
         if (drag.mode === "gizmo") handDragStates.delete(input);
       }
       transformGizmo.visible = false;
-      setStatus("Gizmo hidden. Press B on the right controller to show it again.");
+      setStatus("Object-only mode: pick up an item with one grip; hold both grips to shrink or enlarge it. Player scaling is disabled.");
     } else {
       updateTransformGizmo();
-      setStatus("Gizmo shown. Press B on the right controller to hide it.");
+      setStatus("Full edit mode: XYZ movement, rotation, item scaling and player scaling are available.");
     }
+    redrawPanel();
   }
   rightBWasPressed = pressed;
 }

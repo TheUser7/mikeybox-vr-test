@@ -1,4 +1,4 @@
-# Goop VR Builder — Player Locomotion, Easy Gizmo Handles & Embedded SFX
+# Goop VR Builder — Gizmo Object-Only Mode, Player Locomotion & Embedded SFX
 
 Experimental Quest 3 Browser / WebXR prototype. Editing remains inside immersive VR.
 
@@ -26,7 +26,7 @@ Experimental Quest 3 Browser / WebXR prototype. Editing remains inside immersive
 - Hand pinch hit radius for movement arrows is wider.
 - Rotation ring pickers are widened as well.
 - Rotation keeps the selected part's world-space center fixed.
-- The gizmo is parented to the workspace and positioned in workspace-local coordinates, so it stays attached to the selected part while joystick locomotion moves the workspace. Its axes remain aligned to world XYZ.
+- The gizmo is kept outside the scalable workspace. Its position is refreshed from the selected part's world position, so it follows the part through joystick locomotion while keeping world XYZ axes and a fixed physical size.
 
 ## Hand tracking and editing
 
@@ -48,7 +48,7 @@ This is an alpha prototype. It uses placeholder cubes rather than Animal Company
 
 ## Wrist menu visibility and viewing angle
 
-The wrist tablet now floats slightly forward from the left wrist, stays upright, and smoothly faces the headset so it remains readable as the wrist rolls. The editor panel can be hidden and reopened with the physical X button on the left Quest controller. The floating three-line wrist toggle has been removed. The transform gizmo can now be hidden and shown with the physical B button on the right Quest controller; press B once to hide the XYZ arrows and rotation rings, then press B again to restore them.
+The wrist tablet now floats slightly forward from the left wrist, stays upright, and smoothly faces the headset so it remains readable as the wrist rolls. The editor panel can be hidden and reopened with the physical X button on the left Quest controller. The floating three-line wrist toggle has been removed. The transform gizmo can be hidden and shown with the physical B button on the right Quest controller. Press B once to enter **Object-only mode**; press B again to restore **Full edit mode**.
 
 
 ## Two-controller scaling
@@ -60,7 +60,7 @@ The side-grip buttons on both Quest controllers have two context-sensitive behav
 
 Object grabbing is more forgiving: the grab test measures distance to the visible object's bounds instead of requiring the controller or fingertips to reach the exact object center. The target margin is increased for both controller grips and hand pinches.
 
-The transform gizmo is counter-scaled so it remains a consistent size in the headset as the workspace/player scale changes, while staying anchored to the selected object.
+The transform gizmo is kept in scene space at a fixed one-world-unit size, while its position follows the selected object. It does not inherit workspace/player scaling.
 
 ## More obvious world/background scaling
 
@@ -72,3 +72,25 @@ A camera-facing scale readout appears during the gesture and briefly after relea
 ## Exact 32 × 32 floor and full 3D player movement
 
 The floor is a finite 32 × 32 unit plane with 1-unit grid cells and a visible perimeter from -16 to +16 on X and Z. Four backdrop grids line up with those four edges. During world/player two-hand scaling, the midpoint between the controllers is the scale-and-translation anchor: spread/pinch to change world scale, and move both controllers together in any direction to reposition the workspace in X, Y, and Z. For regular locomotion, the left stick moves forward/back and strafes, while the right stick up/down moves vertically; right stick left/right still snap-turns.
+
+## B button modes
+
+- **B on (Full edit mode):** XYZ arrows and rotation rings are available. The panel's SCALE − / SCALE + buttons are visible. With no item held, both controller grips can resize and move the player through the workspace.
+- **B off (Object-only mode):** the gizmo handles disappear and the manual SCALE buttons are hidden. Hold one controller's side grip close to an object to pick it up and move it by hand. Keep holding it, then hold the other controller's side grip to resize that held object: pull apart to enlarge and bring together to shrink.
+- In Object-only mode, empty-hand two-grip input does not resize or move the player. It also cannot activate the hidden gizmo. While holding an object in this mode, its orientation stays fixed so the pickup gesture does not accidentally rotate it.
+- The object must be grabbed first; selecting it with the trigger alone is not enough to enable two-hand item scaling.
+
+
+## Gizmo size stays constant
+
+The transform gizmo is attached directly to the scene rather than the scalable workspace. Its world-space position follows the selected item every frame, while its rotation stays aligned to world XYZ and its size remains fixed at one world unit. Player/world scaling therefore changes the environment and objects without resizing the gizmo.
+
+
+## Reliability fixes in this build
+
+- The gizmo is a direct child of the scene, not the scalable workspace. Its position is recalculated from the selected object's world position every XR frame, while its size remains exactly one scene-world unit. Workspace/player scaling therefore cannot scale the gizmo.
+- In **B/object-only mode**, controller grab code skips gizmo ray tests entirely. This prevents invisible picker meshes from intercepting a hand grip after the visible gizmo is hidden.
+- Object-only grabs use a more forgiving surface-distance range. Hold one controller's grip near the object to pick it up and move it; keep that grip held and squeeze the other controller to resize the held item. Item size is saved to `scaleModifier`. Releasing either grip ends the scale gesture.
+- Merely selecting an item never enables two-hand item scaling. Empty-hand grips in B/object-only mode cannot scale or move the player.
+
+The source passed a JavaScript syntax check and the ZIP package passed integrity checks. A physical Quest 3 test is still required to confirm controller pose and button behavior in Quest Browser.
