@@ -13,7 +13,8 @@ Experimental Quest 3 Browser / WebXR prototype. Editing remains inside immersive
 
 ## Player movement (controller sticks)
 
-- **Left stick:** smooth player locomotion. Push forward/back to walk relative to the direction your headset faces; push left/right to strafe.
+- **Left stick:** smooth forward/backward movement and side-to-side strafing, relative to the direction your headset faces.
+- **Right stick up/down:** move the player vertically (up/down).
 - **Right stick left/right:** snap-turn the player by 30 degrees per flick. Release back to center before the next turn.
 - Stick movement translates/rotates the whole workspace around the headset. It does **not** move the selected part.
 - Locomotion pauses while manipulating a part, using two-hand scaling, or while an in-VR text keypad is open.
@@ -34,7 +35,7 @@ Experimental Quest 3 Browser / WebXR prototype. Editing remains inside immersive
 - Pinch a part to move it freely.
 - Pinch an enlarged XYZ arrow to move along one axis.
 - Pinch a rotation ring to rotate around that axis without translating the part.
-- **Two-controller scaling:** hold the two side grip/squeeze buttons (one on each controller) at the same time. If one controller is already holding an actual item, pulling apart enlarges that held item and bringing the controllers together shrinks it; the item follows the midpoint between the hands. If no item is being held, the same gesture scales the workspace around the viewer. Merely selecting an item does not trigger item scaling. Release either grip to finish. The app polls the WebXR squeeze state and waits until both grips are released before starting another gesture.
+- **Two-controller scaling:** hold both side grip/squeeze buttons together. If an item is physically held, the gesture scales that item. If no item is held, pulling the controllers apart makes the virtual player appear larger and the environment smaller; bringing them together makes the player appear smaller and the environment larger. Moving both controllers together translates the virtual player through the workspace in X, Y and Z at the same time. Merely selecting an item does not trigger item scaling. Release either grip to finish.
 
 ## Snapping and sounds
 
@@ -47,14 +48,14 @@ This is an alpha prototype. It uses placeholder cubes rather than Animal Company
 
 ## Wrist menu visibility and viewing angle
 
-The wrist tablet now floats slightly forward from the left wrist, stays upright, and smoothly faces the headset so it remains readable as the wrist rolls. The editor panel can be hidden and reopened with the physical X button on the left Quest controller. The floating three-line wrist toggle has been removed.
+The wrist tablet now floats slightly forward from the left wrist, stays upright, and smoothly faces the headset so it remains readable as the wrist rolls. The editor panel can be hidden and reopened with the physical X button on the left Quest controller. The floating three-line wrist toggle has been removed. The transform gizmo can now be hidden and shown with the physical B button on the right Quest controller; press B once to hide the XYZ arrows and rotation rings, then press B again to restore them.
 
 
 ## Two-controller scaling
 
 The side-grip buttons on both Quest controllers have two context-sensitive behaviors:
 
-- **Scale the world/player:** Hold both side grips when you are not holding an item. Pull the controllers apart to enlarge the workspace around your headset; bring them together to shrink it. The viewer position is kept fixed while the world scales. The supported range is 0.25× to 4×.
+- **Player size and movement:** Hold both side grips when you are not holding an item. Pull the controllers apart to make the virtual player larger (the workspace and background shrink around the headset); bring them together to make the player smaller (the workspace grows). Move both grips together up/down, left/right, or forward/backward to move the player in that direction while changing size. The simulated player-size range is 0.25× to 4×. The scale pivot is the headset position, not the controller midpoint.
 - **Scale a held item:** First hold/grab an item with one controller, then hold the other controller's side grip too. Pull apart to enlarge that item; bring the controllers together to shrink it. The item remains centered between the two hands while scaling. Simply selecting an item does not activate item scaling.
 
 Object grabbing is more forgiving: the grab test measures distance to the visible object's bounds instead of requiring the controller or fingertips to reach the exact object center. The target margin is increased for both controller grips and hand pinches.
@@ -63,6 +64,11 @@ The transform gizmo is counter-scaled so it remains a consistent size in the hea
 
 ## More obvious world/background scaling
 
-When both controller side grips are held with no item actively grabbed, the entire workspace scales around the viewer. This includes the sky dome, enlarged floor, 32 × 32 meter floor grid with one-meter cells, concentric floor measurement rings, and the three distant grid walls. These environmental references are all inside the same workspace transform as the build, so their spacing and distance change with the world scale.
+When both controller side grips are held with no item actively grabbed, the virtual player is resized relative to the headset and can be moved in 3D. Pulling the hands apart makes the player larger, so the sky dome, floor, 32 × 32 meter floor grid with one-meter cells, concentric floor measurement rings, four grid walls and build all shrink around the headset. Bringing the hands together makes the player smaller, so the environment grows. Moving both hands together up/down, left/right, or forward/backward moves the virtual player in that direction while the size gesture is active. Scaling is anchored at the headset position rather than the controller midpoint.
 
-A camera-facing scale readout appears during the gesture and briefly after release. It shows `WORLD + BACKGROUND SCALE` with the current multiplier and a progress bar. When scaling an actively held item, the readout changes to `HELD ITEM SCALE` instead. The readout stays a fixed size and does not itself scale with the environment.
+A camera-facing scale readout appears during the gesture and briefly after release. It shows `PLAYER SIZE` with the current player-size multiplier and a progress bar. Pulling the controllers apart increases this multiplier while the environment shrinks around the headset. When scaling an actively held item, the readout changes to `HELD ITEM SCALE` instead. The readout stays a fixed size and does not itself scale with the environment.
+
+
+## Exact 32 × 32 floor and full 3D player movement
+
+The floor is a finite 32 × 32 unit plane with 1-unit grid cells and a visible perimeter from -16 to +16 on X and Z. Four backdrop grids line up with those four edges. During world/player two-hand scaling, the midpoint between the controllers is the scale-and-translation anchor: spread/pinch to change world scale, and move both controllers together in any direction to reposition the workspace in X, Y, and Z. For regular locomotion, the left stick moves forward/back and strafes, while the right stick up/down moves vertically; right stick left/right still snap-turns.

@@ -35,18 +35,28 @@ worldGroup.add(new THREE.HemisphereLight(0xffffff, 0x52606b, 2.1));
 const sun = new THREE.DirectionalLight(0xffffff, 2.0);
 sun.position.set(4, 8, 5);
 worldGroup.add(sun);
+const FLOOR_SIZE = 32;
+const FLOOR_HALF = FLOOR_SIZE / 2;
 const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(32, 32),
+  new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE),
   new THREE.MeshBasicMaterial({ color: 0x657a83 })
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.03;
 environmentGroup.add(floor);
 // A precise 32 × 32 meter floor with one-meter cells (32 divisions).
-// The floor plane and grid share the same bounds: -16 to +16 on X and Z.
-const grid = new THREE.GridHelper(32, 32, 0x526a73, 0x71858c);
+// The floor plane, grid, and bright boundary share exact bounds: -16 to +16 on X and Z.
+const grid = new THREE.GridHelper(FLOOR_SIZE, FLOOR_SIZE, 0x526a73, 0x71858c);
 grid.position.y = -0.015;
 environmentGroup.add(grid);
+// A bright perimeter makes the 32 × 32 floor boundary unmistakable.
+const floorBoundary = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE)),
+  new THREE.LineBasicMaterial({ color: 0xc8e7dc, transparent: true, opacity: 0.95, depthWrite: false })
+);
+floorBoundary.rotation.x = -Math.PI / 2;
+floorBoundary.position.y = -0.004;
+environmentGroup.add(floorBoundary);
 
 // Four floor rings and distant vertical measurement grids make the size of
 // the workspace legible even when the user has scaled far from 1:1.
@@ -86,22 +96,29 @@ function makeBackdropGrid(width, height, spacing = 1, majorEvery = 5) {
   group.add(frame);
   return group;
 }
-const backGrid = makeBackdropGrid(40, 16, 1, 5);
-backGrid.position.set(0, 8, -18);
+const backGrid = makeBackdropGrid(FLOOR_SIZE, 16, 1, 5);
+backGrid.position.set(0, 8, -FLOOR_HALF);
 environmentGroup.add(backGrid);
-const leftGrid = makeBackdropGrid(40, 16, 1, 5);
+const frontGrid = makeBackdropGrid(FLOOR_SIZE, 16, 1, 5);
+frontGrid.rotation.y = Math.PI;
+frontGrid.position.set(0, 8, FLOOR_HALF);
+environmentGroup.add(frontGrid);
+const leftGrid = makeBackdropGrid(FLOOR_SIZE, 16, 1, 5);
 leftGrid.rotation.y = Math.PI / 2;
-leftGrid.position.set(-18, 8, 0);
+leftGrid.position.set(-FLOOR_HALF, 8, 0);
 environmentGroup.add(leftGrid);
-const rightGrid = makeBackdropGrid(40, 16, 1, 5);
+const rightGrid = makeBackdropGrid(FLOOR_SIZE, 16, 1, 5);
 rightGrid.rotation.y = -Math.PI / 2;
-rightGrid.position.set(18, 8, 0);
+rightGrid.position.set(FLOOR_HALF, 8, 0);
 environmentGroup.add(rightGrid);
 
 const rootGroup = new THREE.Group();
 worldGroup.add(rootGroup);
 let nodes = [];
 let selected = null;
+// Right-controller B toggles the transform gizmo without changing selection.
+let gizmoEnabled = true;
+let rightBWasPressed = false;
 let nextId = 1;
 let pendingItemID = "item_crate";
 let keyboardDraft = "item_crate";
@@ -140,9 +157,9 @@ const controllerRecords = [];
 let leftXWasPressed = false;
 // Player locomotion: left stick walks/strafe relative to headset direction;
 // right stick snaps the player's facing direction in 30-degree steps. Two
-// controller grips scale the whole workspace around the viewer unless an
+// controller grips scale and reposition the whole workspace in 3D unless an
 // actual item is already held; in that case they scale the held item.
-const joystickConfig = { moveSpeed: 1.65, deadzone: 0.18, turnStepDegrees: 30, turnThreshold: 0.68, turnReleaseThreshold: 0.25 };
+const joystickConfig = { moveSpeed: 1.65, verticalSpeed: 1.35, deadzone: 0.18, turnStepDegrees: 30, turnThreshold: 0.68, turnReleaseThreshold: 0.25 };
 const joystickState = { turnArmed: true };
 const dragStates = new Map();
 let twoHandScaleState = null;
@@ -189,25 +206,31 @@ function drawScaleFeedback(kind, value, active = true) {
     ctx.clearRect(0, 0, 768, 192);
     ctx.fillStyle = "rgba(8, 20, 29, 0.94)";
     ctx.fillRect(4, 4, 760, 184);
-    ctx.strokeStyle = kind === "WORLD" ? "#75dcc8" : "#a8c9ff";
+    const isPlayerScale = kind === "PLAYER";
+    ctx.strokeStyle = isPlayerScale ? "#75dcc8" : "#a8c9ff";
     ctx.lineWidth = 7;
     ctx.strokeRect(7, 7, 754, 178);
     ctx.fillStyle = "#f5fbff";
     ctx.font = "bold 42px system-ui, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(kind === "WORLD" ? "WORLD + BACKGROUND SCALE" : "HELD ITEM SCALE", 34, 66);
+    ctx.fillText(isPlayerScale ? "PLAYER SIZE" : "HELD ITEM SCALE", 34, 66);
     ctx.textAlign = "right";
     ctx.font = "bold 54px system-ui, sans-serif";
     ctx.fillText(`${safeValue.toFixed(2)}×`, 730, 70);
     ctx.fillStyle = "rgba(210, 229, 237, 0.22)";
     ctx.fillRect(34, 112, 696, 30);
     const normalized = THREE.MathUtils.clamp((Math.log(safeValue / 0.25) / Math.log(4 / 0.25)), 0, 1);
-    ctx.fillStyle = kind === "WORLD" ? "#75dcc8" : "#a8c9ff";
+    ctx.fillStyle = isPlayerScale ? "#75dcc8" : "#a8c9ff";
     ctx.fillRect(34, 112, Math.max(10, 696 * normalized), 30);
     ctx.fillStyle = "#bfd0d9";
     ctx.textAlign = "left";
-    ctx.font = "24px system-ui, sans-serif";
-    ctx.fillText(active ? "PULL APART TO GROW  ·  BRING TOGETHER TO SHRINK" : "SCALE SET  ·  RELEASE BOTH GRIPS", 34, 169);
+    ctx.font = isPlayerScale ? "21px system-ui, sans-serif" : "24px system-ui, sans-serif";
+    const hint = active
+      ? (isPlayerScale
+          ? "PULL APART = GROW  ·  BRING TOGETHER = SHRINK  ·  MOVE BOTH HANDS = MOVE PLAYER IN XYZ"
+          : "PULL APART TO GROW  ·  BRING TOGETHER TO SHRINK")
+      : "SCALE SET  ·  RELEASE BOTH GRIPS";
+    ctx.fillText(hint, 34, 169);
     scaleFeedbackTexture.needsUpdate = true;
   }
   scaleFeedback.visible = true;
@@ -380,7 +403,7 @@ function updateTransformGizmo() {
   // headset even when the user scales the whole workspace around themselves.
   const workspaceScale = Math.max(0.0001, Math.abs(worldGroup.scale.x));
   transformGizmo.scale.setScalar(1 / workspaceScale);
-  transformGizmo.visible = renderer.xr.isPresenting;
+  transformGizmo.visible = renderer.xr.isPresenting && gizmoEnabled;
   transformGizmo.updateMatrixWorld(true);
 }
 
@@ -560,7 +583,7 @@ function drawMainPanel() {
   addPanelText("DOUBLE ARROWS · PUSH / PULL X Y Z", 0, -0.20, 1.50, 0.09, 22, "#ffcf8a");
   addPanelText("CIRCLES · TURN ROTATION X Y Z", 0, -0.34, 1.50, 0.09, 22, "#a9c2cf");
   addPanelText("HOLD ITEM + BOTH GRIPS · SCALE ITEM", 0, -0.48, 1.55, 0.07, 17, "#a9c2cf");
-  addPanelText("EMPTY HANDS + BOTH GRIPS · SCALE WORLD + BACKDROP", 0, -0.56, 1.58, 0.07, 15, "#a9c2cf");
+  addPanelText("EMPTY HANDS + BOTH GRIPS · RESIZE PLAYER + MOVE IN XYZ", 0, -0.56, 1.58, 0.07, 15, "#a9c2cf");
   addButton("SCALE −", "scale:-1", -0.38, -0.68, 0.48, 0.15);
   addButton("SCALE +", "scale:1", 0.15, -0.68, 0.48, 0.15);
   addButton("SNAP SETTINGS", "snapSettings", 0, -0.87, 0.92, 0.11, "active");
@@ -1470,21 +1493,30 @@ function tryBeginTwoHandScale() {
     };
     setStatus("ITEM SCALE ACTIVE · Holding the object with both grips. Pull apart to enlarge; bring together to shrink.");
   } else {
-    const xrCamera = renderer.xr.getCamera(camera);
-    const pivotWorld = xrCamera.getWorldPosition(new THREE.Vector3());
+    // Scale the virtual world around the headset, not around the controller
+    // midpoint. This makes the user feel larger/smaller while keeping their
+    // current viewing position stable. Translating both grips moves the player
+    // through the workspace independently on X, Y and Z.
     worldGroup.updateWorldMatrix(true, false);
-    const pivotLocal = worldGroup.worldToLocal(pivotWorld.clone());
+    const xrCamera = renderer.xr.getCamera(camera);
+    xrCamera.updateMatrixWorld(true);
+    const playerAnchorWorld = xrCamera.getWorldPosition(new THREE.Vector3());
+    const playerAnchorLocal = worldGroup.worldToLocal(playerAnchorWorld.clone());
+    const startMidpoint = leftPosition.clone().add(rightPosition).multiplyScalar(0.5);
     twoHandScaleState = {
       kind: "player",
       leftRecord,
       rightRecord,
       startDistance,
       startWorldScale: Math.max(0.0001, Math.abs(worldGroup.scale.x)),
-      pivotWorld,
-      pivotLocal
+      startWorldPosition: worldGroup.position.clone(),
+      startWorldQuaternion: worldGroup.quaternion.clone(),
+      playerAnchorWorld: playerAnchorWorld.clone(),
+      playerAnchorLocal,
+      startMidpoint: startMidpoint.clone()
     };
-    setStatus("WORLD SCALE ACTIVE · Floor grid, rings and background walls scale with the workspace.");
-    drawScaleFeedback("WORLD", worldGroup.scale.x, true);
+    setStatus("PLAYER SIZE + MOVE ACTIVE · Pull hands apart to grow; bring them together to shrink. Move both hands together in X, Y or Z to move through the workspace.");
+    drawScaleFeedback("PLAYER", 1 / Math.max(0.0001, worldGroup.scale.x), true);
   }
   return true;
 }
@@ -1493,14 +1525,14 @@ function finishTwoHandScale() {
   const finishedKind = twoHandScaleState.kind;
   const finishedScale = finishedKind === "item"
     ? Math.max(1 / 128, 1 + Number(twoHandScaleState.node?.item?.scaleModifier || 0) / 128)
-    : Math.max(0.01, Math.abs(worldGroup.scale.x));
+    : 1 / Math.max(0.0001, Math.abs(worldGroup.scale.x));
   twoHandScaleState = null;
-  drawScaleFeedback(finishedKind === "item" ? "ITEM" : "WORLD", finishedScale, false);
+  drawScaleFeedback(finishedKind === "item" ? "ITEM" : "PLAYER", finishedScale, false);
   scaleGestureNeedsRelease = true;
   for (const record of controllerRecords) dragStates.delete(record.controller);
   setStatus(finishedKind === "item"
     ? "Item scaling finished. Release both grips before another scale gesture."
-    : "World scaling finished. Release both grips before another scale gesture.");
+    : "Player scaling finished. Release both grips before another scale gesture.");
 }
 function pollTwoHandScaleGesture() {
   if (!renderer.xr.isPresenting) return;
@@ -1522,13 +1554,20 @@ function pollTwoHandScaleGesture() {
     tryBeginTwoHandScale();
   }
 }
-function applyWorkspaceScaleAroundViewer(targetScale, pivotWorld, pivotLocal) {
+function applyPlayerScaleAndMove(state, targetScale, handTranslation) {
+  // Rebuild from the gesture-start transform each frame to avoid cumulative
+  // drift. Scaling is anchored at the headset/player position, so the user
+  // experiences their virtual size changing instead of orbiting around their
+  // hands. Shared hand translation moves the environment in the opposite
+  // direction, which moves the virtual player in the same XYZ direction.
+  worldGroup.position.copy(state.startWorldPosition);
+  worldGroup.quaternion.copy(state.startWorldQuaternion);
   worldGroup.scale.setScalar(targetScale);
   worldGroup.updateMatrixWorld(true);
-  // Reposition the workspace so the viewer's starting point stays fixed while
-  // the environment expands/contracts around them, rather than sliding away.
-  const transformedPivot = pivotLocal.clone().applyMatrix4(worldGroup.matrixWorld);
-  worldGroup.position.add(pivotWorld.clone().sub(transformedPivot));
+
+  const transformedPlayerAnchor = state.playerAnchorLocal.clone().applyMatrix4(worldGroup.matrixWorld);
+  worldGroup.position.add(state.playerAnchorWorld.clone().sub(transformedPlayerAnchor));
+  worldGroup.position.sub(handTranslation);
   worldGroup.updateMatrixWorld(true);
 }
 function updateTwoHandScale() {
@@ -1541,10 +1580,16 @@ function updateTwoHandScale() {
 
   const scaleFactor = currentDistance / state.startDistance;
   if (state.kind === "player") {
-    const desiredWorldScale = THREE.MathUtils.clamp(state.startWorldScale * scaleFactor, 0.25, 4.0);
-    if (Math.abs(desiredWorldScale - worldGroup.scale.x) > 0.0005) {
-      applyWorkspaceScaleAroundViewer(desiredWorldScale, state.pivotWorld, state.pivotLocal);
-      drawScaleFeedback("WORLD", desiredWorldScale, true);
+    // Pulling the hands apart makes the virtual player larger, so the
+    // surrounding workspace becomes smaller relative to the headset.
+    const desiredWorldScale = THREE.MathUtils.clamp(state.startWorldScale / scaleFactor, 0.25, 4.0);
+    const currentMidpoint = leftPosition.clone().add(rightPosition).multiplyScalar(0.5);
+    const handTranslation = currentMidpoint.clone().sub(state.startMidpoint);
+    const scaleChanged = Math.abs(desiredWorldScale - worldGroup.scale.x) > 0.0005;
+    const playerMoved = handTranslation.lengthSq() > 0.000004;
+    if (scaleChanged || playerMoved) {
+      applyPlayerScaleAndMove(state, desiredWorldScale, handTranslation);
+      drawScaleFeedback("PLAYER", 1 / desiredWorldScale, true);
       updateTransformGizmo();
     }
     return true;
@@ -1622,6 +1667,13 @@ function updateJoystickMovement(deltaSeconds) {
     // Move the workspace opposite the desired player motion. This moves the
     // player through the scene without moving the selected part independently.
     worldGroup.position.addScaledVector(move, -joystickConfig.moveSpeed * dt * Math.max(0.25, worldGroup.scale.x));
+  }
+
+  // Right stick vertical moves the player up/down; the workspace moves in
+  // the opposite direction so the headset experiences true 3D locomotion.
+  const verticalInput = -right.y;
+  if (Math.abs(verticalInput) > 0.0001) {
+    worldGroup.position.y -= verticalInput * joystickConfig.verticalSpeed * dt * Math.max(0.25, worldGroup.scale.x);
   }
 
   // Right stick horizontal: one comfortable snap-turn per stick flick.
@@ -2021,6 +2073,40 @@ function updateLeftControllerXToggle() {
   leftXWasPressed = pressed;
 }
 
+function updateRightControllerBGizmoToggle() {
+  if (!renderer.xr.isPresenting) {
+    rightBWasPressed = false;
+    return;
+  }
+  const session = renderer.xr.getSession();
+  const rightSource = Array.from(session?.inputSources || []).find(
+    (source) => source.handedness === "right" && source.gamepad
+  );
+  // Meta Touch WebXR mapping: buttons[5] is B on the right controller
+  // (Y on the left). Edge-trigger it so holding B does not flicker the gizmo.
+  const bButton = rightSource?.gamepad?.buttons?.[5];
+  const pressed = Boolean(bButton?.pressed || (Number(bButton?.value) || 0) >= 0.75);
+  if (pressed && !rightBWasPressed) {
+    gizmoEnabled = !gizmoEnabled;
+    if (!gizmoEnabled) {
+      // Cancel any in-progress gizmo drag before hiding its handles. Object
+      // grabs remain untouched, so B never drops a part being held directly.
+      for (const [controller, drag] of dragStates.entries()) {
+        if (drag.mode === "gizmo") dragStates.delete(controller);
+      }
+      for (const [input, drag] of handDragStates.entries()) {
+        if (drag.mode === "gizmo") handDragStates.delete(input);
+      }
+      transformGizmo.visible = false;
+      setStatus("Gizmo hidden. Press B on the right controller to show it again.");
+    } else {
+      updateTransformGizmo();
+      setStatus("Gizmo shown. Press B on the right controller to hide it.");
+    }
+  }
+  rightBWasPressed = pressed;
+}
+
 function updateControllerHover() {
   if (handHoveringAvailable) return;
   let hovered = null;
@@ -2062,7 +2148,9 @@ $("enterVR").addEventListener("click", async () => {
     menuPoseInitialized = false;
     panelReady = false;
     leftXWasPressed = false;
-    setStatus("VR started. Connecting the left-hand menu…");
+    rightBWasPressed = false;
+    gizmoEnabled = true;
+    setStatus("VR started. X toggles the menu; B toggles the gizmo.");
     session.addEventListener("end", () => {
       panel.visible = false;
       menuToggleGroup.visible = false;
@@ -2070,6 +2158,8 @@ $("enterVR").addEventListener("click", async () => {
       menuVisible = true;
       menuPoseInitialized = false;
       leftXWasPressed = false;
+      rightBWasPressed = false;
+      gizmoEnabled = true;
       snapSettingsOpen = false;
       snapValueKeyboardOpen = false;
       transformGizmo.visible = false;
@@ -2133,6 +2223,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
       updateMenuToggleFromPanel();
     }
     updateLeftControllerXToggle();
+    updateRightControllerBGizmoToggle();
     updateControllerHover();
   } else {
     menuToggleGroup.visible = false;
