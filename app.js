@@ -80,6 +80,7 @@ let menuPoseInitialized = false;
 let leftHandGrip = null;
 let leftHandMenuActive = false;
 const controllerRecords = [];
+let leftXWasPressed = false;
 // Player locomotion: left stick walks/strafe relative to headset direction;
 // right stick snaps the player's facing direction in 30-degree steps.
 const joystickConfig = { moveSpeed: 1.65, deadzone: 0.18, turnStepDegrees: 30, turnThreshold: 0.68, turnReleaseThreshold: 0.25 };
@@ -103,8 +104,8 @@ panel.visible = false;
 panel.scale.setScalar(0.32);
 scene.add(panel);
 
-// A persistent three-line wrist button remains visible even when the editor
-// panel is hidden. The larger hit box makes it practical to pinch in VR.
+// Legacy floating menu-toggle meshes remain disabled; the physical left X
+// controller button is polled directly through the WebXR gamepad input.
 const menuToggleGroup = new THREE.Group();
 menuToggleGroup.visible = false;
 scene.add(menuToggleGroup);
@@ -287,10 +288,52 @@ function makeCanvasTexture(text, options = {}) {
   texture.needsUpdate = true;
   return texture;
 }
+function makeAspectCanvasTexture(text, aspectRatio, fontSize = 42, color = "#f5f8fb", maxLongSide = 2048) {
+  // Match the canvas aspect ratio to the exact 3D plane ratio. The previous
+  // fixed 512x160 canvas stretched every label differently in the headset.
+  const aspect = THREE.MathUtils.clamp(Number(aspectRatio) || 1, 0.45, 24);
+  const canvas = document.createElement("canvas");
+  if (aspect >= 1) {
+    canvas.width = maxLongSide;
+    canvas.height = Math.max(96, Math.round(maxLongSide / aspect));
+  } else {
+    canvas.height = maxLongSide;
+    canvas.width = Math.max(96, Math.round(maxLongSide * aspect));
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = color;
+  // Preserve the old visual text size relative to the canvas height while
+  // increasing raster resolution for sharper rendering at Quest viewing distance.
+  const scaledFontSize = Math.max(12, fontSize * (canvas.height / 160));
+  ctx.font = `700 ${scaledFontSize}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.imageSmoothingEnabled = true;
+  const maxWidth = canvas.width - Math.max(16, canvas.width * 0.035);
+  let display = String(text);
+  while (ctx.measureText(display).width > maxWidth && display.length > 4) {
+    display = display.slice(0, -2) + "…";
+  }
+  ctx.fillText(display, canvas.width / 2, canvas.height / 2, maxWidth);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  texture.needsUpdate = true;
+  return texture;
+}
 function addPanelText(text, x, y, width, height, fontSize = 42, color = "#f5f8fb") {
   const mesh = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({ map: makeCanvasTexture(text, { fontSize, color }), transparent: true, depthWrite: false })
+    new THREE.MeshBasicMaterial({
+      map: makeAspectCanvasTexture(text, width / height, fontSize, color, 2048),
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false
+    })
   );
   mesh.position.set(x, y, 0.025);
   panel.add(mesh);
@@ -317,7 +360,12 @@ function addButton(label, action, x, y, width = 0.34, height = 0.15, tone = "nor
   ));
   const face = new THREE.Mesh(
     new THREE.PlaneGeometry(width * 0.94, height * 0.76),
-    new THREE.MeshBasicMaterial({ map: makeCanvasTexture(label, { width: 512, height: 160, fontSize: 54 }), transparent: true, depthWrite: false })
+    new THREE.MeshBasicMaterial({
+      map: makeAspectCanvasTexture(label, (width * 0.94) / (height * 0.76), 54, "#f5f8fb", 1024),
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false
+    })
   );
   face.position.z = 0.024;
   button.add(face);
@@ -867,14 +915,14 @@ function setMenuVisible(visible) {
   if (menuVisible) {
     setStatus("Editor menu opened.");
   } else {
-    setStatus("Editor menu hidden. Pinch the three-line button to reopen it.");
+    setStatus("Editor menu hidden. Press X on the left controller to reopen it.");
   }
 }
 
 function visibleMenuPickTargets() {
-  const targets = menuVisible ? [...uiButtons] : [];
-  if (menuToggleGroup.visible) targets.push(menuToggleHit);
-  return targets;
+  // Menu visibility is controlled by the physical X button on the left Quest
+  // controller, not by a floating wrist button in the scene.
+  return menuVisible ? [...uiButtons] : [];
 }
 
 function runAction(action) {
@@ -1262,17 +1310,9 @@ function updateJoystickMovement(deltaSeconds) {
 }
 
 function updateMenuToggleFromPanel() {
-  if (!renderer.xr.isPresenting || !panelReady) {
-    menuToggleGroup.visible = false;
-    return;
-  }
-  panel.updateWorldMatrix(true, false);
-  const toggleLocalPosition = new THREE.Vector3(-1.18, 1.12, 0.12);
-  menuToggleGroup.position.copy(panel.localToWorld(toggleLocalPosition));
-  panel.getWorldQuaternion(menuToggleGroup.quaternion);
-  panel.getWorldScale(menuToggleGroup.scale);
-  menuToggleGroup.visible = true;
-  menuToggleGroup.updateMatrixWorld(true);
+  // The wrist-mounted menu icon is intentionally disabled. The left
+  // controller's physical X button now toggles the menu instead.
+  menuToggleGroup.visible = false;
 }
 
 function attachPanelToLeftHand() {
@@ -1518,7 +1558,7 @@ function updateHandTracking(xrFrame) {
       panel.scale.setScalar(0.32);
       panel.visible = menuVisible;
       panelReady = true;
-      if (!leftHandGrip) statusText = "LEFT HAND MENU · Pinch the three-line button to hide/show the editor.";
+      if (!leftHandGrip) statusText = "LEFT MENU · PRESS X ON LEFT CONTROLLER TO HIDE/SHOW.";
       if (!wasVisible && menuVisible) redrawPanel();
       updateMenuToggleFromPanel();
     }
@@ -1622,6 +1662,26 @@ function updateHandTracking(xrFrame) {
   }
 }
 
+function updateLeftControllerXToggle() {
+  if (!renderer.xr.isPresenting) {
+    leftXWasPressed = false;
+    return;
+  }
+  const session = renderer.xr.getSession();
+  const leftSource = Array.from(session?.inputSources || []).find(
+    (source) => source.handedness === "left" && source.gamepad
+  );
+  // Oculus/Meta Touch WebXR mapping: buttons[4] is X on the left
+  // controller (A on the right). Use an edge so holding X does not flicker
+  // the menu open and closed every frame.
+  const xButton = leftSource?.gamepad?.buttons?.[4];
+  const pressed = Boolean(xButton?.pressed || (Number(xButton?.value) || 0) >= 0.75);
+  if (pressed && !leftXWasPressed) {
+    setMenuVisible(!menuVisible);
+  }
+  leftXWasPressed = pressed;
+}
+
 function updateControllerHover() {
   if (handHoveringAvailable) return;
   let hovered = null;
@@ -1662,6 +1722,7 @@ $("enterVR").addEventListener("click", async () => {
     menuVisible = true;
     menuPoseInitialized = false;
     panelReady = false;
+    leftXWasPressed = false;
     setStatus("VR started. Connecting the left-hand menu…");
     session.addEventListener("end", () => {
       panel.visible = false;
@@ -1669,6 +1730,7 @@ $("enterVR").addEventListener("click", async () => {
       panelReady = false;
       menuVisible = true;
       menuPoseInitialized = false;
+      leftXWasPressed = false;
       snapSettingsOpen = false;
       snapValueKeyboardOpen = false;
       transformGizmo.visible = false;
@@ -1726,6 +1788,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
       panel.visible = menuVisible;
       updateMenuToggleFromPanel();
     }
+    updateLeftControllerXToggle();
     updateControllerHover();
   } else {
     menuToggleGroup.visible = false;

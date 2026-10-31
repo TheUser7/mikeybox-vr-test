@@ -45,4 +45,4 @@ This is an alpha prototype. It uses placeholder cubes rather than Animal Company
 
 ## Wrist menu visibility and viewing angle
 
-The wrist tablet now floats slightly forward from the left wrist, stays upright, and smoothly faces the headset so it remains readable as the wrist rolls. A separate three-line button sits at the upper-left edge of the tablet. Pinch it with the other hand or point at it with a controller and press trigger to hide the editor panel; the three-line button remains visible so it can reopen the panel.
+The wrist tablet now floats slightly forward from the left wrist, stays upright, and smoothly faces the headset so it remains readable as the wrist rolls. The editor panel can be hidden and reopened with the physical X button on the left Quest controller. The floating three-line wrist toggle has been removed.
