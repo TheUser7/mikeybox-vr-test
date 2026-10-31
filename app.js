@@ -2,6 +2,8 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.m
 
 const $ = (id) => document.getElementById(id);
 const scene = new THREE.Scene();
+const worldGroup = new THREE.Group();
+scene.add(worldGroup);
 scene.background = new THREE.Color(0x9bb3c2);
 // A real sky mesh is more reliable than scene.background in immersive WebXR.
 // Some headset/browser combinations clear the XR framebuffer to black instead.
@@ -10,7 +12,7 @@ const sky = new THREE.Mesh(
   new THREE.MeshBasicMaterial({ color: 0x91b6cc, side: THREE.BackSide, depthWrite: false })
 );
 sky.renderOrder = -100;
-scene.add(sky);
+worldGroup.add(sky);
 
 const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.01, 100);
 camera.position.set(0, 1.65, 2.4);
@@ -24,23 +26,23 @@ renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType("local-floor");
 document.body.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x52606b, 2.1));
+worldGroup.add(new THREE.HemisphereLight(0xffffff, 0x52606b, 2.1));
 const sun = new THREE.DirectionalLight(0xffffff, 2.0);
 sun.position.set(4, 8, 5);
-scene.add(sun);
+worldGroup.add(sun);
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(50, 50),
   new THREE.MeshBasicMaterial({ color: 0x657a83 })
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.03;
-scene.add(floor);
+worldGroup.add(floor);
 const grid = new THREE.GridHelper(24, 48, 0x526a73, 0x71858c);
 grid.position.y = -0.015;
-scene.add(grid);
+worldGroup.add(grid);
 
 const rootGroup = new THREE.Group();
-scene.add(rootGroup);
+worldGroup.add(rootGroup);
 let nodes = [];
 let selected = null;
 let nextId = 1;
@@ -67,10 +69,10 @@ let panelReady = false;
 let leftHandGrip = null;
 let leftHandMenuActive = false;
 const controllerRecords = [];
-// Thumbstick translation is deliberately separate from hand/gizmo drags.
-// Left stick moves on the X/Z plane; right stick up/down adjusts world Y.
-const joystickConfig = { speed: 0.85, deadzone: 0.18 };
-const joystickState = { node: null, rawPosition: new THREE.Vector3(), active: false };
+// Player locomotion: left stick walks/strafe relative to headset direction;
+// right stick snaps the player's facing direction in 30-degree steps.
+const joystickConfig = { moveSpeed: 1.65, deadzone: 0.18, turnStepDegrees: 30, turnThreshold: 0.68, turnReleaseThreshold: 0.25 };
+const joystickState = { turnArmed: true };
 const dragStates = new Map();
 const handPinchStates = new Map();
 const handDragStates = new Map();
@@ -111,22 +113,50 @@ function addGizmoMesh(mesh, handle) {
 }
 worldAxes.forEach((axis, index) => {
   const color = gizmoAxisColors[index];
+  const moveHandle = { kind: "translate", axis, axisIndex: index };
+
+  // Visible shaft: widened so it is easy to see and target at VR scale.
   const shaft = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.012, 0.012, 1.08, 10),
+    new THREE.CylinderGeometry(0.025, 0.025, 1.12, 12),
     new THREE.MeshBasicMaterial({ color, depthTest: true })
   );
   shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
-  addGizmoMesh(shaft, { kind: "translate", axis, axisIndex: index });
+  addGizmoMesh(shaft, moveHandle);
 
   [1, -1].forEach((direction) => {
     const tip = new THREE.Mesh(
-      new THREE.ConeGeometry(0.042, 0.14, 10),
+      new THREE.ConeGeometry(0.065, 0.18, 12),
       new THREE.MeshBasicMaterial({ color, depthTest: true })
     );
     const directedAxis = axis.clone().multiplyScalar(direction);
     tip.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), directedAxis);
-    tip.position.copy(directedAxis).multiplyScalar(0.60);
-    addGizmoMesh(tip, { kind: "translate", axis, axisIndex: index });
+    tip.position.copy(directedAxis).multiplyScalar(0.64);
+    addGizmoMesh(tip, moveHandle);
+  });
+
+  // Invisible long capsule-like cylinder. Controller rays can hit it even
+  // when they miss the narrow visible shaft by several centimeters.
+  const shaftPicker = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.13, 0.13, 1.55, 12),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0, colorWrite: false,
+      depthWrite: false, depthTest: false, side: THREE.DoubleSide
+    })
+  );
+  shaftPicker.quaternion.copy(shaft.quaternion);
+  addGizmoMesh(shaftPicker, moveHandle);
+
+  // Larger invisible end-cap targets make the push/pull tips forgiving.
+  [1, -1].forEach((direction) => {
+    const capPicker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 12, 8),
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0, colorWrite: false,
+        depthWrite: false, depthTest: false
+      })
+    );
+    capPicker.position.copy(axis).multiplyScalar(direction * 0.64);
+    addGizmoMesh(capPicker, moveHandle);
   });
 
   const rotateHandle = { kind: "rotate", axis, axisIndex: index };
@@ -138,18 +168,11 @@ worldAxes.forEach((axis, index) => {
   ring.renderOrder = 5;
   addGizmoMesh(ring, rotateHandle);
 
-  // Separate, much wider hit target. It is invisible but still raycastable,
-  // which makes the rotation rings practical to grab with Quest controllers.
   const ringPicker = new THREE.Mesh(
-    new THREE.TorusGeometry(0.53, 0.095, 10, 96),
+    new THREE.TorusGeometry(0.53, 0.12, 10, 96),
     new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0,
-      colorWrite: false,
-      depthWrite: false,
-      depthTest: false,
-      side: THREE.DoubleSide
+      color: 0xffffff, transparent: true, opacity: 0, colorWrite: false,
+      depthWrite: false, depthTest: false, side: THREE.DoubleSide
     })
   );
   ringPicker.quaternion.copy(ring.quaternion);
@@ -161,7 +184,7 @@ worldAxes.forEach((axis, index) => {
     depthTest: true
   }));
   axisLabel.scale.set(0.13, 0.13, 1);
-  axisLabel.position.copy(axis).multiplyScalar(0.82);
+  axisLabel.position.copy(axis).multiplyScalar(0.88);
   transformGizmo.add(axisLabel);
 });
 const gizmoCenter = new THREE.Mesh(
@@ -311,7 +334,7 @@ function drawMainPanel() {
   addPanelText("SELECT A PART · USE THE 3D GIZMO", 0, -0.04, 1.48, 0.09, 26, "#a9c2cf");
   addPanelText("DOUBLE ARROWS · PUSH / PULL X Y Z", 0, -0.20, 1.50, 0.09, 22, "#ffcf8a");
   addPanelText("CIRCLES · TURN ROTATION X Y Z", 0, -0.34, 1.50, 0.09, 22, "#a9c2cf");
-  addPanelText("JOYSTICKS · LEFT X/Z · RIGHT UP/DOWN Y", 0, -0.47, 1.55, 0.09, 20, "#a9c2cf");
+  addPanelText("PLAYER MOVE · LEFT WALK/STRAFE · RIGHT TURN", 0, -0.47, 1.55, 0.09, 20, "#a9c2cf");
   addButton("SCALE −", "scale:-1", -0.38, -0.63, 0.48, 0.15);
   addButton("SCALE +", "scale:1", 0.15, -0.63, 0.48, 0.15);
   addButton("SNAP SETTINGS", "snapSettings", 0, -0.84, 0.92, 0.13, "active");
@@ -385,53 +408,17 @@ function setStatus(text) {
 }
 
 const SFX_FILES = {
-  snapIn: new URL("./assets/snapIn.ogg", import.meta.url).href,
-  snapOut: new URL("./assets/snapOut.ogg", import.meta.url).href,
-  click: new URL("./assets/UI_Click.ogg", import.meta.url).href,
-  hover: new URL("./assets/UI_Hover.ogg", import.meta.url).href
-};
+  hover: "data:audio/mpeg;base64,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",
+  click: "data:audio/mpeg;base64,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2qOTK1CggcdHS3rWWWwyNZZmTScWUWaUWZcbm1NOzlFlHGnGlHmXGJIkjRQGIPPMuNmnZrxaJxpRZZR8XlTVO15uf7NScW1xmykacWYfcaikacWUUfFo1LO8blSzxiSJKUxKSxyPyWYlcso5bKpmampmgoZivUr0EqlMNRGAoNiEbfh5WnLtUyTRTKSlScQIjAR0CHqTiW6cimati+1gVVlKU9kyUpkn0OhAMLHC6AskVUSLHFCFIIkFYkrSogqnGBIC0VFL1uKfZMsVTJNFN5P9PRU6kEkUARcEKiERyEz/86TE4T0kOKgEGbE8MnCwi3aQ6SCUQYEAgBCRVhYeSOVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=",
+  snapIn: "data:audio/mpeg;base64,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",
+  snapOut: "data:audio/mpeg;base64,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",
+ };
 const htmlAudio = Object.create(null);
 let audioFailures = [];
-function warmAudio() {
-  // HTMLAudio is kept as a fallback for Quest Browser builds where WebAudio
-  // decode/resume can fail or autoplay rules differ during an XR session.
-  for (const [name, url] of Object.entries(SFX_FILES)) {
-    if (!htmlAudio[name]) {
-      const audio = new Audio(url);
-      audio.preload = "auto";
-      audio.playsInline = true;
-      audio.volume = name === "hover" ? 0.7 : 0.85;
-      audio.load();
-      htmlAudio[name] = audio;
-    }
-  }
+let queuedSfx = [];
+let audioPrimeStarted = false;
 
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) {
-    audioLoadPromise = Promise.resolve();
-    return audioLoadPromise;
-  }
-  if (!audioContext) audioContext = new AudioCtx();
-  // This is called synchronously from ENTER VR, while the page still has the
-  // user's activation. Quest may suspend the context later, so playSfx resumes
-  // it again whenever a sound is requested.
-  audioContext.resume().catch((error) => console.warn("AudioContext resume failed:", error));
-  if (!audioLoadPromise) {
-    audioLoadPromise = Promise.all(Object.entries(SFX_FILES).map(async ([name, url]) => {
-      try {
-        const response = await fetch(url, { cache: "force-cache" });
-        if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-        const bytes = await response.arrayBuffer();
-        audioBuffers[name] = await audioContext.decodeAudioData(bytes);
-      } catch (error) {
-        audioFailures.push(name);
-        console.warn(`WebAudio sound decode unavailable for ${name}; HTMLAudio fallback will be used.`, error);
-      }
-    }));
-  }
-  return audioLoadPromise;
-}
-function playDecodedSfx(name) {
+function startDecodedSfx(name) {
   if (!audioContext || !audioBuffers[name]) return false;
   const start = () => {
     try {
@@ -449,45 +436,114 @@ function playDecodedSfx(name) {
   };
   if (audioContext.state === "running") start();
   else audioContext.resume().then(start).catch((error) => {
-    console.warn(`Could not resume WebAudio for ${name}:`, error);
+    console.warn(`AudioContext resume failed for ${name}:`, error);
     playHtmlAudio(name);
   });
   return true;
 }
+
 function playHtmlAudio(name) {
-  const template = htmlAudio[name];
-  if (!template) return false;
+  const audio = htmlAudio[name];
+  if (!audio) return false;
   try {
-    // Reuse the unlocked audio element. It is reset for each sound, which is
-    // more reliable on Quest than cloning a fresh media element every time.
-    template.pause();
-    template.currentTime = 0;
-    const result = template.play();
+    audio.pause();
+    audio.currentTime = 0;
+    audio.muted = false;
+    const result = audio.play();
     if (result && typeof result.catch === "function") {
-      result.catch((error) => {
-        console.warn(`HTMLAudio playback blocked for ${name}:`, error);
-        // If HTMLAudio is blocked but WebAudio decoded successfully, fall back.
-        if (audioBuffers[name] && audioContext) playDecodedSfx(name);
-      });
+      result.catch((error) => console.warn(`HTML audio playback blocked for ${name}:`, error));
     }
     return true;
   } catch (error) {
-    console.warn(`HTMLAudio playback failed for ${name}:`, error);
+    console.warn(`HTML audio playback failed for ${name}:`, error);
     return false;
   }
 }
+
+function warmAudio() {
+  // Create and prime audio directly from the ENTER VR click. The clips are
+  // embedded in app.js, so there are no external asset requests to go missing.
+  for (const [name, dataUrl] of Object.entries(SFX_FILES)) {
+    if (!htmlAudio[name]) {
+      const audio = new Audio(dataUrl);
+      audio.preload = "auto";
+      audio.playsInline = true;
+      audio.volume = name === "hover" ? 0.7 : 0.85;
+      htmlAudio[name] = audio;
+      audio.load();
+    }
+  }
+
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (AudioCtx) {
+    if (!audioContext) audioContext = new AudioCtx();
+    // Resume synchronously from the trusted ENTER VR click to unlock Quest audio.
+    audioContext.resume().catch((error) => console.warn("AudioContext resume failed:", error));
+    if (!audioLoadPromise) {
+      audioLoadPromise = Promise.all(Object.entries(SFX_FILES).map(async ([name, dataUrl]) => {
+        try {
+          const response = await fetch(dataUrl);
+          if (!response.ok) throw new Error(`Could not read embedded ${name} clip`);
+          const bytes = await response.arrayBuffer();
+          audioBuffers[name] = await audioContext.decodeAudioData(bytes);
+        } catch (error) {
+          audioFailures.push(name);
+          console.warn(`Could not decode ${name}; HTML audio fallback will be used.`, error);
+        }
+      })).then(() => {
+        const pending = queuedSfx;
+        queuedSfx = [];
+        for (const name of pending) {
+          if (audioBuffers[name] && audioContext) startDecodedSfx(name);
+          else playHtmlAudio(name);
+        }
+      });
+    }
+  } else {
+    audioLoadPromise = Promise.resolve();
+  }
+
+  // Prime each media element while the ENTER VR user activation is live.
+  // Muted priming is inaudible; later playback is unmuted.
+  if (!audioPrimeStarted) {
+    audioPrimeStarted = true;
+    for (const audio of Object.values(htmlAudio)) {
+      audio.muted = true;
+      const priming = audio.play();
+      if (priming && typeof priming.then === "function") {
+        priming.then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.muted = false;
+        }).catch((error) => {
+          audio.muted = false;
+          console.warn("HTML audio could not be primed:", error);
+        });
+      } else {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = false;
+      }
+    }
+  }
+  return audioLoadPromise;
+}
+
 function playSfx(name) {
+  if (!SFX_FILES[name]) return;
   if (audioContext && audioBuffers[name]) {
-    playDecodedSfx(name);
+    startDecodedSfx(name);
     return;
   }
-  const htmlStarted = playHtmlAudio(name);
-  // While the first load is still decoding, queue a WebAudio fallback only if
-  // the media-element attempt cannot play. Do not intentionally double-play.
-  if (!htmlStarted && audioLoadPromise) {
-    audioLoadPromise.then(() => playDecodedSfx(name));
+  if (audioLoadPromise && audioContext) {
+    // Wait for the first decode instead of mistaking a pending/rejected
+    // HTMLAudio.play() promise for successful playback.
+    queuedSfx.push(name);
+    return;
   }
+  playHtmlAudio(name);
 }
+
 function setHoveredButton(button) {
   if (button !== lastHoveredButton) {
     lastHoveredButton = button;
@@ -657,8 +713,6 @@ function disposeBuild() {
 }
 function choose(node) {
   selected = node;
-  joystickState.node = null;
-  joystickState.active = false;
   if (node) pendingItemID = node.item.itemID;
   updateTransformGizmo();
   redrawPanel();
@@ -860,9 +914,9 @@ function findGizmoHandleAtPoint(point) {
     const axis = handle.axis;
     let distance;
     if (handle.kind === "translate") {
-      const closest = closestPointOnAxisSegment(point, center, axis, -0.70, 0.70);
+      const closest = closestPointOnAxisSegment(point, center, axis, -0.82, 0.82);
       distance = point.distanceTo(closest);
-      if (distance < 0.14 && distance < bestDistance) {
+      if (distance < 0.25 && distance < bestDistance) {
         best = handle;
         bestDistance = distance;
       }
@@ -871,7 +925,7 @@ function findGizmoHandleAtPoint(point) {
       const axial = relative.dot(axis);
       const radial = relative.addScaledVector(axis, -axial).length();
       distance = Math.hypot(axial, radial - 0.53);
-      if (distance < 0.19 && distance < bestDistance) {
+      if (distance < 0.24 && distance < bestDistance) {
         best = handle;
         bestDistance = distance;
       }
@@ -1079,52 +1133,55 @@ function getThumbstickAxes(inputSource) {
     y: applyStickDeadzone(Number(axes[pair + 1] || 0), joystickConfig.deadzone)
   };
 }
+function applyPlayerSnapTurn(xrCamera, direction) {
+  const pivot = xrCamera.getWorldPosition(new THREE.Vector3());
+  pivot.y = 0; // turn around the player's floor position, not head height
+  const angle = THREE.MathUtils.degToRad(joystickConfig.turnStepDegrees) * direction;
+  const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+  worldGroup.position.sub(pivot).applyQuaternion(turn).add(pivot);
+  worldGroup.quaternion.premultiply(turn).normalize();
+  worldGroup.updateMatrixWorld(true);
+}
+
 function updateJoystickMovement(deltaSeconds) {
-  if (!renderer.xr.isPresenting || !selected || !nodes.includes(selected)) {
-    joystickState.node = null;
-    joystickState.active = false;
-    return;
-  }
-  // Do not let a stick fight with a hand grab or controller gizmo drag.
-  if (dragStates.size || handDragStates.size || keyboardOpen || snapValueKeyboardOpen) {
-    joystickState.node = null;
-    joystickState.active = false;
-    return;
-  }
+  if (!renderer.xr.isPresenting) return;
+  // Avoid moving the workspace while a part is being manipulated or an
+  // in-VR text keypad is open. Otherwise locomotion is independent of selection.
+  if (dragStates.size || handDragStates.size || keyboardOpen || snapValueKeyboardOpen) return;
+
   const session = renderer.xr.getSession();
   const sources = Array.from(session?.inputSources || []);
   const leftSource = sources.find((source) => source.handedness === "left" && source.gamepad);
   const rightSource = sources.find((source) => source.handedness === "right" && source.gamepad);
-  if (!leftSource && !rightSource) {
-    joystickState.node = null;
-    joystickState.active = false;
-    return;
-  }
-
-  const left = getThumbstickAxes(leftSource);
-  const right = getThumbstickAxes(rightSource);
-  // XR axes use -1 for up. Left stick: X/Z; right stick vertical: world Y.
-  const move = new THREE.Vector3(left.x, -right.y, left.y);
-  const isMoving = move.lengthSq() > 0.0001;
-  if (!isMoving) {
-    if (joystickState.active && snapConfig.positionEnabled) playSfx("snapIn");
-    joystickState.active = false;
-    joystickState.node = null;
-    return;
-  }
-  if (joystickState.node !== selected) {
-    selected.group.updateWorldMatrix(true, false);
-    joystickState.rawPosition.copy(selected.group.getWorldPosition(new THREE.Vector3()));
-    joystickState.node = selected;
-  }
-  if (!joystickState.active && snapConfig.positionEnabled) playSfx("snapOut");
-  joystickState.active = true;
+  if (!leftSource && !rightSource) return;
 
   const dt = THREE.MathUtils.clamp(Number(deltaSeconds) || 0, 0, 0.05);
   if (dt <= 0) return;
-  joystickState.rawPosition.addScaledVector(move, joystickConfig.speed * dt);
-  const displayPosition = snapWorldPosition(joystickState.rawPosition.clone());
-  setNodeWorldPosition(selected, displayPosition);
+  const left = getThumbstickAxes(leftSource);
+  const right = getThumbstickAxes(rightSource);
+  const xrCamera = renderer.xr.getCamera(camera);
+
+  // Walk forward/back and strafe in the direction the headset is facing.
+  const forward = xrCamera.getWorldDirection(new THREE.Vector3());
+  forward.y = 0;
+  if (forward.lengthSq() > 0.0001) forward.normalize();
+  const rightVector = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+  const move = rightVector.multiplyScalar(left.x).addScaledVector(forward, -left.y);
+  if (move.lengthSq() > 1) move.normalize();
+  if (move.lengthSq() > 0.0001) {
+    // Move the workspace opposite the desired player motion. This moves the
+    // player through the scene without moving the selected part independently.
+    worldGroup.position.addScaledVector(move, -joystickConfig.moveSpeed * dt);
+  }
+
+  // Right stick horizontal: one comfortable snap-turn per stick flick.
+  const turnX = right.x;
+  if (joystickState.turnArmed && Math.abs(turnX) >= joystickConfig.turnThreshold) {
+    applyPlayerSnapTurn(xrCamera, Math.sign(turnX));
+    joystickState.turnArmed = false;
+  } else if (Math.abs(turnX) <= joystickConfig.turnReleaseThreshold) {
+    joystickState.turnArmed = true;
+  }
 }
 
 function attachPanelToLeftHand() {
@@ -1498,6 +1555,7 @@ $("enterVR").addEventListener("click", async () => {
       snapSettingsOpen = false;
       snapValueKeyboardOpen = false;
       transformGizmo.visible = false;
+      joystickState.turnArmed = true;
       leftHandGrip = null;
       leftHandMenuActive = false;
       handPinchStates.clear();
