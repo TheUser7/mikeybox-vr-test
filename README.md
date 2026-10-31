@@ -41,3 +41,8 @@ Position and rotation snapping remain independently configurable in the left-han
 ## Limitations
 
 This is an alpha prototype. It uses placeholder cubes rather than Animal Company models, and item IDs are entered manually. Exports have not been verified in the live game. WebXR requires HTTPS. I have run local syntax and package checks, but physical Quest 3 testing is still required.
+
+
+## Wrist menu visibility and viewing angle
+
+The wrist tablet now floats slightly forward from the left wrist, stays upright, and smoothly faces the headset so it remains readable as the wrist rolls. A separate three-line button sits at the upper-left edge of the tablet. Pinch it with the other hand or point at it with a controller and press trigger to hide the editor panel; the three-line button remains visible so it can reopen the panel.

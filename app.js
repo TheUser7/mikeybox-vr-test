@@ -75,6 +75,8 @@ const HOVER_EXIT_RESET_MS = 170;
 const HOVER_GLOBAL_COOLDOWN_MS = 260;
 let handHoveringAvailable = false;
 let panelReady = false;
+let menuVisible = true;
+let menuPoseInitialized = false;
 let leftHandGrip = null;
 let leftHandMenuActive = false;
 const controllerRecords = [];
@@ -100,6 +102,29 @@ const panel = new THREE.Group();
 panel.visible = false;
 panel.scale.setScalar(0.32);
 scene.add(panel);
+
+// A persistent three-line wrist button remains visible even when the editor
+// panel is hidden. The larger hit box makes it practical to pinch in VR.
+const menuToggleGroup = new THREE.Group();
+menuToggleGroup.visible = false;
+scene.add(menuToggleGroup);
+const menuToggleHit = new THREE.Mesh(
+  new THREE.BoxGeometry(0.66, 0.54, 0.10),
+  new THREE.MeshBasicMaterial({ color: 0x145b59, transparent: true, opacity: 0.96, depthTest: false, depthWrite: false })
+);
+menuToggleHit.userData.action = "toggleMenu";
+menuToggleGroup.add(menuToggleHit);
+const menuToggleEdge = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(0.66, 0.54, 0.10)),
+  new THREE.LineBasicMaterial({ color: 0x83e4d0, depthTest: false })
+);
+menuToggleGroup.add(menuToggleEdge);
+const menuToggleBarMaterial = new THREE.MeshBasicMaterial({ color: 0xf3fbff, depthTest: false });
+for (const y of [0.13, 0, -0.13]) {
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.035, 0.018), menuToggleBarMaterial);
+  bar.position.set(0, y, 0.065);
+  menuToggleGroup.add(bar);
+}
 
 // World-space transform gizmo: double-ended arrows translate on X/Y/Z,
 // circular rings rotate around X/Y/Z. Handles can be pinched directly.
@@ -835,8 +860,29 @@ function nudgeRotate(index) {
   syncMesh(selected);
   redrawPanel();
 }
+function setMenuVisible(visible) {
+  menuVisible = Boolean(visible);
+  panel.visible = menuVisible;
+  if (menuVisible && panelReady) redrawPanel();
+  if (menuVisible) {
+    setStatus("Editor menu opened.");
+  } else {
+    setStatus("Editor menu hidden. Pinch the three-line button to reopen it.");
+  }
+}
+
+function visibleMenuPickTargets() {
+  const targets = menuVisible ? [...uiButtons] : [];
+  if (menuToggleGroup.visible) targets.push(menuToggleHit);
+  return targets;
+}
+
 function runAction(action) {
   playSfx("click");
+  if (action === "toggleMenu") {
+    setMenuVisible(!menuVisible);
+    return;
+  }
   if (action.startsWith("key") || action.startsWith("key:")) { handleKeyboardAction(action); return; }
   if (action.startsWith("snapKey") || action.startsWith("snapKey:")) { handleSnapValueAction(action); return; }
   if (snapValueKeyboardOpen) return;
@@ -1069,7 +1115,7 @@ function pickGizmoHandle(controller) {
 }
 function onTrigger(controller) {
   getControllerRay(controller);
-  const buttonHits = raycaster.intersectObjects(uiButtons, false);
+  const buttonHits = raycaster.intersectObjects(visibleMenuPickTargets(), false);
   if (buttonHits.length) {
     runAction(buttonHits[0].object.userData.action);
     return;
@@ -1215,16 +1261,33 @@ function updateJoystickMovement(deltaSeconds) {
   }
 }
 
+function updateMenuToggleFromPanel() {
+  if (!renderer.xr.isPresenting || !panelReady) {
+    menuToggleGroup.visible = false;
+    return;
+  }
+  panel.updateWorldMatrix(true, false);
+  const toggleLocalPosition = new THREE.Vector3(-1.18, 1.12, 0.12);
+  menuToggleGroup.position.copy(panel.localToWorld(toggleLocalPosition));
+  panel.getWorldQuaternion(menuToggleGroup.quaternion);
+  panel.getWorldScale(menuToggleGroup.scale);
+  menuToggleGroup.visible = true;
+  menuToggleGroup.updateMatrixWorld(true);
+}
+
 function attachPanelToLeftHand() {
   if (!leftHandGrip) return false;
-  leftHandGrip.add(panel);
-  // A compact wrist/palm menu, facing back toward the player.
-  panel.position.set(0, 0.15, -0.09);
+  if (panel.parent !== leftHandGrip) leftHandGrip.add(panel);
+  // Place the panel just above and in front of the controller hand. Its
+  // orientation is billboarded toward the headset in the XR animation loop.
+  panel.position.set(0, 0.18, -0.20);
   panel.rotation.set(0, 0, 0);
   panel.scale.setScalar(0.32);
-  panel.visible = true;
+  panel.visible = menuVisible;
   panelReady = true;
+  menuPoseInitialized = false;
   redrawPanel();
+  updateMenuToggleFromPanel();
   return true;
 }
 function setupController(index) {
@@ -1258,6 +1321,7 @@ function setupController(index) {
         scene.add(panel);
         panel.visible = false;
         panelReady = false;
+        menuToggleGroup.visible = false;
       }
     }
     record.inputSource = null;
@@ -1284,7 +1348,7 @@ function refreshLeftHandAttachment() {
     const handedness = record.handedness || source?.handedness;
     if (handedness === "left" && !source?.hand) {
       leftHandGrip = record.grip;
-      if (panel.parent !== leftHandGrip || !panel.visible) attachPanelToLeftHand();
+      if (panel.parent !== leftHandGrip || !panelReady) attachPanelToLeftHand();
       leftHandMenuActive = false;
       return true;
     }
@@ -1399,7 +1463,7 @@ function pickHandMenuButton(input, xrFrame, referenceSpace, jointSpaces) {
   raycaster.set(origin, direction.normalize());
   raycaster.near = 0.005;
   raycaster.far = 2.0;
-  const hits = raycaster.intersectObjects(uiButtons, false);
+  const hits = raycaster.intersectObjects(visibleMenuPickTargets(), false);
   return hits.length ? hits[0].object : null;
 }
 function updateHandTracking(xrFrame) {
@@ -1427,21 +1491,36 @@ function updateHandTracking(xrFrame) {
     const wristSpace = leftJointSpaces.get("wrist");
     const wristPose = wristSpace ? xrFrame.getJointPose(wristSpace, referenceSpace) : null;
     if (wristPose) {
-      const wrist = wristPose.transform.position;
+      const wrist = new THREE.Vector3(wristPose.transform.position.x, wristPose.transform.position.y, wristPose.transform.position.z);
       const xrCamera = renderer.xr.getCamera(camera);
       const viewerPosition = xrCamera.getWorldPosition(new THREE.Vector3());
+      const toViewer = viewerPosition.clone().sub(wrist).normalize();
+      // Float the tablet a little forward from the wrist and above the palm,
+      // then keep it upright and facing the headset regardless of wrist roll.
+      const targetPosition = wrist.add(new THREE.Vector3(0, 0.17, 0)).addScaledVector(toViewer, 0.16);
       if (panel.parent !== scene) {
         panel.removeFromParent();
         scene.add(panel);
+        menuPoseInitialized = false;
       }
       const wasVisible = panel.visible;
-      panel.position.set(wrist.x, wrist.y + 0.14, wrist.z);
+      if (!menuPoseInitialized) {
+        panel.position.copy(targetPosition);
+        menuPoseInitialized = true;
+      } else {
+        panel.position.lerp(targetPosition, 0.34);
+      }
+      panel.up.set(0, 1, 0);
+      const oldQuaternion = panel.quaternion.clone();
       panel.lookAt(viewerPosition);
+      const facingQuaternion = panel.quaternion.clone();
+      panel.quaternion.copy(oldQuaternion).slerp(facingQuaternion, 0.38);
       panel.scale.setScalar(0.32);
-      panel.visible = true;
+      panel.visible = menuVisible;
       panelReady = true;
-      if (!leftHandGrip) statusText = "LEFT HAND MENU · Point and pinch buttons; pinch near a part to grab it.";
-      if (!wasVisible) redrawPanel();
+      if (!leftHandGrip) statusText = "LEFT HAND MENU · Pinch the three-line button to hide/show the editor.";
+      if (!wasVisible && menuVisible) redrawPanel();
+      updateMenuToggleFromPanel();
     }
   } else if (!leftHandGrip) {
     // Keep the menu visible at its last tracked position during brief tracking
@@ -1549,7 +1628,7 @@ function updateControllerHover() {
   for (const record of controllerRecords) {
     record.controller.updateMatrixWorld(true);
     getControllerRay(record.controller);
-    const hits = raycaster.intersectObjects(uiButtons, false);
+    const hits = raycaster.intersectObjects(visibleMenuPickTargets(), false);
     if (hits.length) { hovered = hits[0].object; break; }
   }
   setHoveredButton(hovered);
@@ -1579,10 +1658,17 @@ $("enterVR").addEventListener("click", async () => {
     updateTransformGizmo();
     $("landing").hidden = true;
     panel.visible = false;
+    menuToggleGroup.visible = false;
+    menuVisible = true;
+    menuPoseInitialized = false;
+    panelReady = false;
     setStatus("VR started. Connecting the left-hand menu…");
     session.addEventListener("end", () => {
       panel.visible = false;
+      menuToggleGroup.visible = false;
       panelReady = false;
+      menuVisible = true;
+      menuPoseInitialized = false;
       snapSettingsOpen = false;
       snapValueKeyboardOpen = false;
       transformGizmo.visible = false;
@@ -1630,9 +1716,19 @@ renderer.setAnimationLoop((time, xrFrame) => {
   const deltaSeconds = previousFrameTime ? Math.min((time - previousFrameTime) / 1000, 0.05) : 0;
   previousFrameTime = time;
   if (renderer.xr.isPresenting) {
-    if (!leftHandMenuActive && !panel.visible) refreshLeftHandAttachment();
+    if (!leftHandMenuActive && !panelReady) refreshLeftHandAttachment();
     updateHandTracking(xrFrame);
+    if (!leftHandMenuActive && leftHandGrip && panel.parent === leftHandGrip && panelReady) {
+      const xrCamera = renderer.xr.getCamera(camera);
+      const viewerPosition = xrCamera.getWorldPosition(new THREE.Vector3());
+      panel.up.set(0, 1, 0);
+      panel.lookAt(viewerPosition);
+      panel.visible = menuVisible;
+      updateMenuToggleFromPanel();
+    }
     updateControllerHover();
+  } else {
+    menuToggleGroup.visible = false;
   }
   updateDrags();
   if (renderer.xr.isPresenting) updateJoystickMovement(deltaSeconds);
