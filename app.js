@@ -63,7 +63,16 @@ let statusText = "Enter VR. Select a part, then use its XYZ arrows and rotation 
 let audioContext = null;
 let audioLoadPromise = null;
 const audioBuffers = Object.create(null);
-let lastHoveredButton = null;
+// Hover audio is edge-triggered with a short dwell debounce. XR hand rays can
+// jitter between a button and empty space every frame; using the action key
+// (instead of mesh identity) prevents repeated sounds from tiny tracking noise.
+let hoverCandidateAction = null;
+let hoverCandidateSince = 0;
+let lastHoverActionPlayed = null;
+let lastHoverSfxTime = 0;
+const HOVER_DWELL_MS = 115;
+const HOVER_EXIT_RESET_MS = 170;
+const HOVER_GLOBAL_COOLDOWN_MS = 260;
 let handHoveringAvailable = false;
 let panelReady = false;
 let leftHandGrip = null;
@@ -545,10 +554,32 @@ function playSfx(name) {
 }
 
 function setHoveredButton(button) {
-  if (button !== lastHoveredButton) {
-    lastHoveredButton = button;
-    if (button) playSfx("hover");
+  const action = button?.userData?.action ?? null;
+  const now = performance.now();
+
+  // Start timing a new candidate. Do not play on the first noisy tracking frame.
+  if (action !== hoverCandidateAction) {
+    hoverCandidateAction = action;
+    hoverCandidateSince = now;
+    return;
   }
+
+  // Require a sustained exit before allowing the same button to sound again.
+  if (action === null) {
+    if (lastHoverActionPlayed !== null && now - hoverCandidateSince >= HOVER_EXIT_RESET_MS) {
+      lastHoverActionPlayed = null;
+    }
+    return;
+  }
+
+  // One hover sound per stable button entry, even if the hit mesh is recreated.
+  if (action === lastHoverActionPlayed) return;
+  if (now - hoverCandidateSince < HOVER_DWELL_MS) return;
+  if (now - lastHoverSfxTime < HOVER_GLOBAL_COOLDOWN_MS) return;
+
+  lastHoverActionPlayed = action;
+  lastHoverSfxTime = now;
+  playSfx("hover");
 }
 function roundToStep(value, step) {
   if (!Number.isFinite(step) || step <= 0) return value;
