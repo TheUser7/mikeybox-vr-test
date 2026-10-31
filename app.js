@@ -82,11 +82,14 @@ let leftHandMenuActive = false;
 const controllerRecords = [];
 let leftXWasPressed = false;
 // Player locomotion: left stick walks/strafe relative to headset direction;
-// right stick snaps the player's facing direction in 30-degree steps.
+// right stick snaps the player's facing direction in 30-degree steps. Two
+// controller grips scale the whole workspace around the viewer unless an
+// actual item is already held; in that case they scale the held item.
 const joystickConfig = { moveSpeed: 1.65, deadzone: 0.18, turnStepDegrees: 30, turnThreshold: 0.68, turnReleaseThreshold: 0.25 };
 const joystickState = { turnArmed: true };
 const dragStates = new Map();
 let twoHandScaleState = null;
+let scaleGestureNeedsRelease = false;
 const handPinchStates = new Map();
 const handDragStates = new Map();
 const handPoseProxies = new Map();
@@ -132,8 +135,8 @@ for (const y of [0.13, 0, -0.13]) {
 // circular rings rotate around X/Y/Z. Handles can be pinched directly.
 const transformGizmo = new THREE.Group();
 transformGizmo.visible = false;
-// Keep the gizmo in the same workspace transform as the parts. This makes it
-// travel with the selected part when joystick locomotion moves worldGroup.
+// Keep the gizmo in the same workspace transform as the parts so it remains
+// anchored to the selected object during joystick locomotion and world scaling.
 worldGroup.add(transformGizmo);
 const gizmoHandles = [];
 const gizmoPickMeshes = [];
@@ -246,7 +249,10 @@ function updateTransformGizmo() {
   transformGizmo.position.copy(worldGroup.worldToLocal(selectedWorldPosition));
   const workspaceWorldQuaternion = worldGroup.getWorldQuaternion(new THREE.Quaternion());
   transformGizmo.quaternion.copy(workspaceWorldQuaternion.invert());
-  transformGizmo.scale.setScalar(1);
+  // Counter-scale the gizmo so it stays a comfortable, constant size in the
+  // headset even when the user scales the whole workspace around themselves.
+  const workspaceScale = Math.max(0.0001, Math.abs(worldGroup.scale.x));
+  transformGizmo.scale.setScalar(1 / workspaceScale);
   transformGizmo.visible = renderer.xr.isPresenting;
   transformGizmo.updateMatrixWorld(true);
 }
@@ -426,10 +432,11 @@ function drawMainPanel() {
   addPanelText("SELECT A PART · USE THE 3D GIZMO", 0, -0.04, 1.48, 0.09, 26, "#a9c2cf");
   addPanelText("DOUBLE ARROWS · PUSH / PULL X Y Z", 0, -0.20, 1.50, 0.09, 22, "#ffcf8a");
   addPanelText("CIRCLES · TURN ROTATION X Y Z", 0, -0.34, 1.50, 0.09, 22, "#a9c2cf");
-  addPanelText("PLAYER MOVE · LEFT WALK/STRAFE · RIGHT TURN", 0, -0.47, 1.55, 0.09, 20, "#a9c2cf");
-  addButton("SCALE −", "scale:-1", -0.38, -0.63, 0.48, 0.15);
-  addButton("SCALE +", "scale:1", 0.15, -0.63, 0.48, 0.15);
-  addButton("SNAP SETTINGS", "snapSettings", 0, -0.84, 0.92, 0.13, "active");
+  addPanelText("HOLD ITEM + BOTH GRIPS · SCALE ITEM", 0, -0.48, 1.55, 0.07, 17, "#a9c2cf");
+  addPanelText("EMPTY HANDS + BOTH GRIPS · SCALE WORLD", 0, -0.56, 1.55, 0.07, 16, "#a9c2cf");
+  addButton("SCALE −", "scale:-1", -0.38, -0.68, 0.48, 0.15);
+  addButton("SCALE +", "scale:1", 0.15, -0.68, 0.48, 0.15);
+  addButton("SNAP SETTINGS", "snapSettings", 0, -0.87, 0.92, 0.11, "active");
 }
 function drawSnapSettingsPanel() {
   clearPanel();
@@ -1184,15 +1191,28 @@ function onTrigger(controller) {
     setStatus(`Selected ${node.item.itemID}. Use its double arrows to move and circles to rotate.`);
   }
 }
-function nearestNodeToHand(grip, maxDistance = 0.34) {
+function nodeGrabSurfaceDistance(node, point) {
+  if (!node?.mesh) return Infinity;
+  node.mesh.updateWorldMatrix(true, false);
+  const geometry = node.mesh.geometry;
+  if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+  const sphere = geometry.boundingSphere;
+  if (!sphere) return Infinity;
+  const center = sphere.center.clone().applyMatrix4(node.mesh.matrixWorld);
+  const worldScale = node.mesh.getWorldScale(new THREE.Vector3());
+  const radius = sphere.radius * Math.max(Math.abs(worldScale.x), Math.abs(worldScale.y), Math.abs(worldScale.z));
+  // Distance to the outside of the visible mesh, not just its origin. This
+  // makes larger objects much easier to pick up without making tiny objects
+  // require an exact centre hit.
+  return Math.max(0, point.distanceTo(center) - radius);
+}
+function nearestNodeToHand(grip, maxSurfaceDistance = 0.38) {
   grip.updateMatrixWorld(true);
   const handPosition = new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld);
   let nearest = null;
-  let bestDistance = maxDistance;
+  let bestDistance = maxSurfaceDistance;
   for (const node of nodes) {
-    node.group.updateMatrixWorld(true);
-    const itemPosition = new THREE.Vector3().setFromMatrixPosition(node.group.matrixWorld);
-    const distance = handPosition.distanceTo(itemPosition);
+    const distance = nodeGrabSurfaceDistance(node, handPosition);
     if (distance < bestDistance) {
       bestDistance = distance;
       nearest = node;
@@ -1221,10 +1241,8 @@ function beginDrag(rayController, grip) {
   let node = nearestNodeToHand(grip);
   if (!node && selected) {
     grip.updateMatrixWorld(true);
-    selected.group.updateMatrixWorld(true);
     const handPosition = new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld);
-    const itemPosition = new THREE.Vector3().setFromMatrixPosition(selected.group.matrixWorld);
-    if (handPosition.distanceTo(itemPosition) < 0.48) node = selected;
+    if (nodeGrabSurfaceDistance(selected, handPosition) < 0.48) node = selected;
   }
   if (!node) {
     setStatus("Move your controller hand close to a part, then hold the grip button to pick it up.");
@@ -1233,7 +1251,7 @@ function beginDrag(rayController, grip) {
   grip.updateMatrixWorld(true);
   node.group.updateMatrixWorld(true);
   const offset = grip.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
-  dragStates.set(rayController, { node, grip, offset });
+  dragStates.set(rayController, { mode: "object", node, grip, offset });
   if (snapConfig.positionEnabled || snapConfig.rotationEnabled) playSfx("snapOut");
   choose(node);
   setStatus(`Holding ${node.item.itemID}. Move your controller hand; release grip to place it.`);
@@ -1253,54 +1271,163 @@ function updateDrags() {
   }
 }
 function controllerGripWorldPosition(record) {
-  record.grip.updateMatrixWorld(true);
+  // Controller grip poses are tracked in the XR scene, independently of the
+  // movable editor workspace. Read the pose after updating its world matrix.
+  record.grip.updateWorldMatrix(true, false);
   return record.grip.getWorldPosition(new THREE.Vector3());
 }
+function refreshControllerInputSources() {
+  // Refresh from the live XR session every frame. Relying only on the
+  // connected event can leave a controller's handedness/gamepad unset on
+  // some Quest Browser builds.
+  const sources = Array.from(renderer.xr.getSession()?.inputSources || []);
+  for (const record of controllerRecords) {
+    const source = sources.find((candidate) => candidate.handedness === record.handedness)
+      || sources[record.index]
+      || null;
+    if (source) {
+      record.inputSource = source;
+      record.handedness = source.handedness || record.handedness;
+    }
+  }
+}
+function isControllerGripHeld(record) {
+  const source = record.inputSource || record.controller.userData?.inputSource || record.grip.userData?.inputSource;
+  // XR-standard WebXR gamepads expose squeeze/grip as button 1. The event
+  // flag remains a fallback for runtimes that don't expose that button.
+  const squeezeButton = source?.gamepad?.buttons?.[1];
+  return Boolean(record.squeezePressed || squeezeButton?.pressed || (Number(squeezeButton?.value) || 0) >= 0.65);
+}
+function findHeldObjectDrag() {
+  // Item scaling is allowed only when a controller is already gripping an
+   // actual object. Merely having an item selected is not enough.
+  for (const drag of dragStates.values()) {
+    if (drag && drag.mode === "object" && drag.node && nodes.includes(drag.node)) return drag;
+  }
+  return null;
+}
 function tryBeginTwoHandScale() {
-  if (twoHandScaleState || !selected || !nodes.includes(selected)) return false;
+  if (twoHandScaleState || scaleGestureNeedsRelease) return false;
   const leftRecord = controllerRecords.find((record) => record.handedness === "left");
   const rightRecord = controllerRecords.find((record) => record.handedness === "right");
-  if (!leftRecord?.squeezePressed || !rightRecord?.squeezePressed) return false;
+  if (!leftRecord || !rightRecord || !isControllerGripHeld(leftRecord) || !isControllerGripHeld(rightRecord)) return false;
 
   const leftPosition = controllerGripWorldPosition(leftRecord);
   const rightPosition = controllerGripWorldPosition(rightRecord);
   const startDistance = leftPosition.distanceTo(rightPosition);
-  if (!Number.isFinite(startDistance) || startDistance < 0.04) return false;
+  if (!Number.isFinite(startDistance) || startDistance < 0.08) return false;
 
-  // Switch from any one-hand grab to a two-hand scale gesture.
+  const heldObjectDrag = findHeldObjectDrag();
+  // Both grips on an actual held object mean item scaling; without an object
+  // held, both grips always scale the workspace/player (even if a gizmo was
+  // previously grabbed with one controller).
   dragStates.delete(leftRecord.controller);
   dragStates.delete(rightRecord.controller);
-  const startModifier = Number(selected.item.scaleModifier || 0);
-  twoHandScaleState = {
-    node: selected,
-    leftRecord,
-    rightRecord,
-    startDistance,
-    startModifier,
-    startScale: Math.max(1 / 128, 1 + startModifier / 128)
-  };
-  setStatus("TWO-HAND SCALE · Hold both controller grips and pull apart to enlarge or bring together to shrink.");
+
+  if (heldObjectDrag) {
+    const node = heldObjectDrag.node;
+    node.group.updateWorldMatrix(true, false);
+    const startWorldPosition = node.group.getWorldPosition(new THREE.Vector3());
+    const startMidpoint = leftPosition.clone().add(rightPosition).multiplyScalar(0.5);
+    const startModifier = Number(node.item.scaleModifier || 0);
+    const startScale = Math.max(1 / 128, 1 + startModifier / 128);
+    twoHandScaleState = {
+      kind: "item",
+      node,
+      leftRecord,
+      rightRecord,
+      startDistance,
+      startScale,
+      startWorldPosition,
+      startMidpoint
+    };
+    setStatus("ITEM SCALE ACTIVE · Holding the object with both grips. Pull apart to enlarge; bring together to shrink.");
+  } else {
+    const xrCamera = renderer.xr.getCamera(camera);
+    const pivotWorld = xrCamera.getWorldPosition(new THREE.Vector3());
+    worldGroup.updateWorldMatrix(true, false);
+    const pivotLocal = worldGroup.worldToLocal(pivotWorld.clone());
+    twoHandScaleState = {
+      kind: "player",
+      leftRecord,
+      rightRecord,
+      startDistance,
+      startWorldScale: Math.max(0.0001, Math.abs(worldGroup.scale.x)),
+      pivotWorld,
+      pivotLocal
+    };
+    setStatus("WORLD SCALE ACTIVE · Pull both grips apart to grow the workspace; bring them together to shrink it.");
+  }
   return true;
+}
+function finishTwoHandScale() {
+  if (!twoHandScaleState) return;
+  const finishedKind = twoHandScaleState.kind;
+  twoHandScaleState = null;
+  scaleGestureNeedsRelease = true;
+  for (const record of controllerRecords) dragStates.delete(record.controller);
+  setStatus(finishedKind === "item"
+    ? "Item scaling finished. Release both grips before another scale gesture."
+    : "World scaling finished. Release both grips before another scale gesture.");
+}
+function pollTwoHandScaleGesture() {
+  if (!renderer.xr.isPresenting) return;
+  const leftRecord = controllerRecords.find((record) => record.handedness === "left");
+  const rightRecord = controllerRecords.find((record) => record.handedness === "right");
+  if (!leftRecord || !rightRecord) return;
+
+  const leftHeld = isControllerGripHeld(leftRecord);
+  const rightHeld = isControllerGripHeld(rightRecord);
+  const bothHeld = leftHeld && rightHeld;
+  if (scaleGestureNeedsRelease) {
+    if (!leftHeld && !rightHeld) scaleGestureNeedsRelease = false;
+    return;
+  }
+  if (twoHandScaleState) {
+    if (!bothHeld) finishTwoHandScale();
+    else updateTwoHandScale();
+  } else if (bothHeld) {
+    tryBeginTwoHandScale();
+  }
+}
+function applyWorkspaceScaleAroundViewer(targetScale, pivotWorld, pivotLocal) {
+  worldGroup.scale.setScalar(targetScale);
+  worldGroup.updateMatrixWorld(true);
+  // Reposition the workspace so the viewer's starting point stays fixed while
+  // the environment expands/contracts around them, rather than sliding away.
+  const transformedPivot = pivotLocal.clone().applyMatrix4(worldGroup.matrixWorld);
+  worldGroup.position.add(pivotWorld.clone().sub(transformedPivot));
+  worldGroup.updateMatrixWorld(true);
 }
 function updateTwoHandScale() {
   const state = twoHandScaleState;
   if (!state) return false;
-  if (!nodes.includes(state.node) || !state.leftRecord.squeezePressed || !state.rightRecord.squeezePressed) {
-    twoHandScaleState = null;
-    return false;
-  }
   const leftPosition = controllerGripWorldPosition(state.leftRecord);
   const rightPosition = controllerGripWorldPosition(state.rightRecord);
   const currentDistance = leftPosition.distanceTo(rightPosition);
-  if (!Number.isFinite(currentDistance) || currentDistance < 0.02) return true;
+  if (!Number.isFinite(currentDistance) || currentDistance < 0.03) return true;
 
   const scaleFactor = currentDistance / state.startDistance;
+  if (state.kind === "player") {
+    const desiredWorldScale = THREE.MathUtils.clamp(state.startWorldScale * scaleFactor, 0.25, 4.0);
+    if (Math.abs(desiredWorldScale - worldGroup.scale.x) > 0.0005) {
+      applyWorkspaceScaleAroundViewer(desiredWorldScale, state.pivotWorld, state.pivotLocal);
+      updateTransformGizmo();
+    }
+    return true;
+  }
+
+  if (!nodes.includes(state.node)) return false;
   const desiredScale = THREE.MathUtils.clamp(state.startScale * scaleFactor, 1 / 128, 255 / 128);
   const modifier = THREE.MathUtils.clamp(Math.round((desiredScale - 1) * 128), -127, 127);
-  if (modifier !== state.node.item.scaleModifier) {
+  if (modifier !== Number(state.node.item.scaleModifier || 0)) {
     state.node.item.scaleModifier = modifier;
     syncMesh(state.node);
   }
+  // Keep the held item centred between the two hands while it scales.
+  const currentMidpoint = leftPosition.clone().add(rightPosition).multiplyScalar(0.5);
+  const desiredWorldPosition = state.startWorldPosition.clone().add(currentMidpoint.sub(state.startMidpoint));
+  setNodeWorldPosition(state.node, snapWorldPosition(desiredWorldPosition));
   return true;
 }
 
@@ -1360,7 +1487,7 @@ function updateJoystickMovement(deltaSeconds) {
   if (move.lengthSq() > 0.0001) {
     // Move the workspace opposite the desired player motion. This moves the
     // player through the scene without moving the selected part independently.
-    worldGroup.position.addScaledVector(move, -joystickConfig.moveSpeed * dt);
+    worldGroup.position.addScaledVector(move, -joystickConfig.moveSpeed * dt * Math.max(0.25, worldGroup.scale.x));
   }
 
   // Right stick horizontal: one comfortable snap-turn per stick flick.
@@ -1433,6 +1560,7 @@ function setupController(index) {
     dragStates.delete(controller);
     if (twoHandScaleState && (twoHandScaleState.leftRecord === record || twoHandScaleState.rightRecord === record)) {
       twoHandScaleState = null;
+      scaleGestureNeedsRelease = true;
     }
   });
   controller.addEventListener("selectstart", () => onTrigger(controller));
@@ -1443,10 +1571,8 @@ function setupController(index) {
   controller.addEventListener("squeezeend", () => {
     record.squeezePressed = false;
     if (twoHandScaleState && (twoHandScaleState.leftRecord === record || twoHandScaleState.rightRecord === record)) {
-      twoHandScaleState = null;
-      for (const activeRecord of controllerRecords) dragStates.delete(activeRecord.controller);
+      finishTwoHandScale();
       if (snapConfig.positionEnabled || snapConfig.rotationEnabled) playSfx("snapIn");
-      setStatus("Two-hand scaling finished.");
       return;
     }
     const drag = dragStates.get(controller);
@@ -1694,7 +1820,7 @@ function updateHandTracking(xrFrame) {
         if (handle && selected) {
           beginHandGizmoDrag(input, proxy, handle);
         } else {
-        const node = nearestNodeToHand(proxy, 0.34);
+        const node = nearestNodeToHand(proxy, 0.42);
         if (node) {
           node.group.updateMatrixWorld(true);
           const offset = proxy.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
@@ -1859,6 +1985,8 @@ renderer.setAnimationLoop((time, xrFrame) => {
   const deltaSeconds = previousFrameTime ? Math.min((time - previousFrameTime) / 1000, 0.05) : 0;
   previousFrameTime = time;
   if (renderer.xr.isPresenting) {
+    refreshControllerInputSources();
+    pollTwoHandScaleGesture();
     if (!leftHandMenuActive && !panelReady) refreshLeftHandAttachment();
     updateHandTracking(xrFrame);
     if (!leftHandMenuActive && leftHandGrip && panel.parent === leftHandGrip && panelReady) {

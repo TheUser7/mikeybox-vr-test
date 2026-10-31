@@ -34,7 +34,7 @@ Experimental Quest 3 Browser / WebXR prototype. Editing remains inside immersive
 - Pinch a part to move it freely.
 - Pinch an enlarged XYZ arrow to move along one axis.
 - Pinch a rotation ring to rotate around that axis without translating the part.
-- **Two-controller scaling:** select a part, then hold the grip/squeeze button on both Quest controllers. Pull the controllers apart to enlarge the part; bring them together to shrink it. Release either grip to finish scaling. Scaling changes the selected item's exported `scaleModifier`.
+- **Two-controller scaling:** hold the two side grip/squeeze buttons (one on each controller) at the same time. If one controller is already holding an actual item, pulling apart enlarges that held item and bringing the controllers together shrinks it; the item follows the midpoint between the hands. If no item is being held, the same gesture scales the workspace around the viewer. Merely selecting an item does not trigger item scaling. Release either grip to finish. The app polls the WebXR squeeze state and waits until both grips are released before starting another gesture.
 
 ## Snapping and sounds
 
@@ -42,9 +42,21 @@ Position and rotation snapping remain independently configurable in the left-han
 
 ## Limitations
 
-This is an alpha prototype. It uses placeholder cubes rather than Animal Company models, and item IDs are entered manually. Exports have not been verified in the live game. WebXR requires HTTPS. I have run local syntax and package checks, but physical Quest 3 testing is still required.
+This is an alpha prototype. It uses placeholder cubes rather than Animal Company models, and item IDs are entered manually. Exports have not been verified in the live game. WebXR requires HTTPS. I have run local syntax and package checks, but physical Quest 3 testing is still required. Two-hand scaling now refreshes WebXR controller sources every frame and polls the XR-standard squeeze button as a fallback to controller squeeze events; this is intended to make the scale gesture more reliable across Quest Browser versions.
 
 
 ## Wrist menu visibility and viewing angle
 
 The wrist tablet now floats slightly forward from the left wrist, stays upright, and smoothly faces the headset so it remains readable as the wrist rolls. The editor panel can be hidden and reopened with the physical X button on the left Quest controller. The floating three-line wrist toggle has been removed.
+
+
+## Two-controller scaling
+
+The side-grip buttons on both Quest controllers have two context-sensitive behaviors:
+
+- **Scale the world/player:** Hold both side grips when you are not holding an item. Pull the controllers apart to enlarge the workspace around your headset; bring them together to shrink it. The viewer position is kept fixed while the world scales. The supported range is 0.25× to 4×.
+- **Scale a held item:** First hold/grab an item with one controller, then hold the other controller's side grip too. Pull apart to enlarge that item; bring the controllers together to shrink it. The item remains centered between the two hands while scaling. Simply selecting an item does not activate item scaling.
+
+Object grabbing is more forgiving: the grab test measures distance to the visible object's bounds instead of requiring the controller or fingertips to reach the exact object center. The target margin is increased for both controller grips and hand pinches.
+
+The transform gizmo is counter-scaled so it remains a consistent size in the headset as the workspace/player scale changes, while staying anchored to the selected object.
