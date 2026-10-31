@@ -47,11 +47,17 @@ let nextId = 1;
 let pendingItemID = "item_crate";
 let keyboardDraft = "item_crate";
 let keyboardOpen = false;
-let statusText = "Enter VR, then point and trigger the floating controls.";
+let statusText = "Enter VR. The menu follows your left hand; pinch a part to move it.";
 let panelReady = false;
-let pendingPanelRecenter = false;
-const controllers = [];
+let leftHandGrip = null;
+let leftHandMenuActive = false;
+const controllerRecords = [];
 const dragStates = new Map();
+const handPinchStates = new Map();
+const handDragStates = new Map();
+const handPoseProxies = new Map();
+const handJointMaps = new Map();
+const handVisuals = new Map();
 const raycaster = new THREE.Raycaster();
 const uiButtons = [];
 const tempMatrix = new THREE.Matrix4();
@@ -62,6 +68,7 @@ const tempScale = new THREE.Vector3();
 
 const panel = new THREE.Group();
 panel.visible = false;
+panel.scale.setScalar(0.32);
 scene.add(panel);
 
 function validItemID(id) {
@@ -202,8 +209,7 @@ function drawMainPanel() {
 
   addButton("SCALE −", "scale:-1", -0.38, -0.80, 0.48, 0.15);
   addButton("SCALE +", "scale:1", 0.15, -0.80, 0.48, 0.15);
-  addButton("RE-CENTER MENU", "recenter", 0.57, -0.80, 0.40, 0.15, "muted");
-  addPanelText("Point + trigger = select / press · Hold grip near item = grab", 0, -0.94, 1.55, 0.07, 18, "#91a6b3");
+  addPanelText("LEFT HAND MENU · Point + pinch to press · Pinch a nearby part to move", 0, -0.94, 1.55, 0.07, 17, "#91a6b3");
 }
 function drawKeyboardPanel() {
   clearPanel();
@@ -403,7 +409,7 @@ function runAction(action) {
     if (nodes.some((n) => !n.parent)) { setStatus("A root already exists. Import a different build to replace it."); return; }
     if (!validItemID(pendingItemID)) pendingItemID = "item_crate";
     choose(createNode(makeItem(pendingItemID), null, [0, 1.1, 0.45]));
-    setStatus("Root created. Point at it to select; grip near it to move/rotate.");
+    setStatus("Root created. Point to select; pinch (hands) or squeeze (controller) near it to move.");
   } else if (action === "addPart") {
     if (!selected) { setStatus("Select the parent item before adding a part."); return; }
     const child = createNode(makeItem(pendingItemID), selected, [0.35, 0.15, 0]);
@@ -439,8 +445,6 @@ function runAction(action) {
     selected.item.scaleModifier = Math.max(-127, Math.min(127, Number(selected.item.scaleModifier || 0) + Number(action.split(":")[1])));
     syncMesh(selected);
     setStatus(`Scale modifier: ${selected.item.scaleModifier}`);
-  } else if (action === "recenter") {
-    recenterPanel();
   }
 }
 
@@ -466,39 +470,53 @@ function onTrigger(controller) {
   const node = pickNode(controller);
   if (node) {
     choose(node);
-    setStatus(`Selected ${node.item.itemID}. Hold grip close to it to grab.`);
+    setStatus(`Selected ${node.item.itemID}. Pinch near it with hands, or squeeze with a controller, to move it.`);
   }
 }
-function beginDrag(controller) {
-  let node = selected;
-  controller.updateMatrixWorld(true);
-  if (!node) node = pickNode(controller);
-  if (!node) return;
-  node.group.updateMatrixWorld(true);
-  const controllerPosition = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
-  const itemPosition = new THREE.Vector3().setFromMatrixPosition(node.group.matrixWorld);
-  if (controllerPosition.distanceTo(itemPosition) > 0.9) {
-    const aimed = pickNode(controller);
-    if (aimed) {
-      choose(aimed);
-      node = aimed;
-      node.group.updateMatrixWorld(true);
-    } else {
-      setStatus("Move your controller close to the selected item, then hold grip.");
-      return;
+function nearestNodeToHand(grip, maxDistance = 0.34) {
+  grip.updateMatrixWorld(true);
+  const handPosition = new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld);
+  let nearest = null;
+  let bestDistance = maxDistance;
+  for (const node of nodes) {
+    node.group.updateMatrixWorld(true);
+    const itemPosition = new THREE.Vector3().setFromMatrixPosition(node.group.matrixWorld);
+    const distance = handPosition.distanceTo(itemPosition);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      nearest = node;
     }
   }
-  const offset = controller.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
-  dragStates.set(controller, { node, offset });
+  return nearest;
+}
+function beginDrag(rayController, grip) {
+  // Grab the closest part to the tracked controller grip, rather than dragging
+  // from the controller's aim-ray pose. This makes the part follow hand motion.
+  let node = nearestNodeToHand(grip);
+  if (!node && selected) {
+    grip.updateMatrixWorld(true);
+    selected.group.updateMatrixWorld(true);
+    const handPosition = new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld);
+    const itemPosition = new THREE.Vector3().setFromMatrixPosition(selected.group.matrixWorld);
+    if (handPosition.distanceTo(itemPosition) < 0.48) node = selected;
+  }
+  if (!node) {
+    setStatus("Move your controller hand close to a part, then hold the grip button to pick it up.");
+    return;
+  }
+  grip.updateMatrixWorld(true);
+  node.group.updateMatrixWorld(true);
+  const offset = grip.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
+  dragStates.set(rayController, { node, grip, offset });
   choose(node);
-  setStatus("Grabbed. Move your hand to reposition and rotate; release grip to place.");
+  setStatus(`Holding ${node.item.itemID}. Move your controller hand; release grip to place it.`);
 }
 function updateDrags() {
-  for (const [controller, drag] of dragStates.entries()) {
+  for (const [rayController, drag] of dragStates.entries()) {
     const node = drag.node;
-    if (!nodes.includes(node)) { dragStates.delete(controller); continue; }
-    controller.updateMatrixWorld(true);
-    const desiredWorld = tempMatrix2.copy(controller.matrixWorld).multiply(drag.offset);
+    if (!nodes.includes(node)) { dragStates.delete(rayController); continue; }
+    drag.grip.updateMatrixWorld(true);
+    const desiredWorld = tempMatrix2.copy(drag.grip.matrixWorld).multiply(drag.offset);
     const parent = node.group.parent;
     parent.updateMatrixWorld(true);
     const local = tempMatrix.copy(parent.matrixWorld).invert().multiply(desiredWorld);
@@ -507,54 +525,286 @@ function updateDrags() {
     node.group.quaternion.copy(node.quaternion);
   }
 }
+function attachPanelToLeftHand() {
+  if (!leftHandGrip) return false;
+  leftHandGrip.add(panel);
+  // A compact wrist/palm menu, facing back toward the player.
+  panel.position.set(0, 0.15, -0.09);
+  panel.rotation.set(0, 0, 0);
+  panel.scale.setScalar(0.32);
+  panel.visible = true;
+  panelReady = true;
+  redrawPanel();
+  return true;
+}
 function setupController(index) {
-  const controller = renderer.xr.getController(index);
+  const controller = renderer.xr.getController(index);       // pointing ray / buttons
+  const grip = renderer.xr.getControllerGrip(index);          // tracked hand pose
   scene.add(controller);
+  scene.add(grip);
   const lineGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -5)]);
   const line = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({ color: 0x44ffcc }));
   line.frustumCulled = false;
   controller.add(line);
-  controller.addEventListener("selectstart", () => onTrigger(controller));
-  controller.addEventListener("squeezestart", () => beginDrag(controller));
-  controller.addEventListener("squeezeend", () => {
-    if (dragStates.delete(controller)) setStatus("Item placed.");
+  const record = { index, controller, grip, handedness: null, inputSource: null };
+  controller.addEventListener("connected", (event) => {
+    record.inputSource = event.data || null;
+    record.handedness = event.data?.handedness || null;
+    // When Quest hand tracking is active, the menu is positioned from the
+    // actual wrist joint below. Otherwise, use the left controller grip.
+    if (record.handedness === "left" && !event.data?.hand) {
+      leftHandGrip = grip;
+      if (renderer.xr.isPresenting && !leftHandMenuActive) {
+        attachPanelToLeftHand();
+        setStatus("Menu attached to your left controller hand.");
+      }
+    }
   });
-  controllers.push(controller);
+  controller.addEventListener("disconnected", () => {
+    if (leftHandGrip === grip) {
+      leftHandGrip = null;
+      if (!leftHandMenuActive) {
+        panel.removeFromParent();
+        scene.add(panel);
+        panel.visible = false;
+        panelReady = false;
+      }
+    }
+    record.inputSource = null;
+    dragStates.delete(controller);
+  });
+  controller.addEventListener("selectstart", () => onTrigger(controller));
+  controller.addEventListener("squeezestart", () => beginDrag(controller, grip));
+  controller.addEventListener("squeezeend", () => {
+    if (dragStates.delete(controller)) setStatus("Part placed.");
+  });
+  controllerRecords.push(record);
 }
 setupController(0);
 setupController(1);
 
-function recenterPanel() {
-  // Wait for an XR animation frame before reading the headset pose. Immediately
-  // after requestSession(), some browsers still return an identity/stale pose.
-  if (renderer.xr.isPresenting) {
-    pendingPanelRecenter = true;
-    setStatus("Placing the menu in front of your headset…");
-    return;
+function refreshLeftHandAttachment() {
+  // Controller fallback when the headset is not supplying tracked hand joints.
+  for (const record of controllerRecords) {
+    const source = record.inputSource || record.controller.userData?.inputSource || record.grip.userData?.inputSource;
+    const handedness = record.handedness || source?.handedness;
+    if (handedness === "left" && !source?.hand) {
+      leftHandGrip = record.grip;
+      if (panel.parent !== leftHandGrip || !panel.visible) attachPanelToLeftHand();
+      leftHandMenuActive = false;
+      return true;
+    }
   }
-  // Desktop preview placement (the actual editor controls are still VR-only).
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  panel.position.copy(camera.position).addScaledVector(forward, 1.25);
-  panel.position.y -= 0.12;
-  panel.quaternion.copy(camera.quaternion);
-  panelReady = true;
-  redrawPanel();
-  setStatus("Menu positioned.");
+  return false;
 }
-function placePanelFromHeadset() {
-  const xrCamera = renderer.xr.getCamera(camera);
-  xrCamera.updateMatrixWorld(true);
-  const worldPosition = new THREE.Vector3().setFromMatrixPosition(xrCamera.matrixWorld);
-  const worldQuaternion = new THREE.Quaternion().setFromRotationMatrix(
-    new THREE.Matrix4().extractRotation(xrCamera.matrixWorld)
-  );
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuaternion);
-  panel.position.copy(worldPosition).addScaledVector(forward, 1.25);
-  panel.position.y -= 0.12;
-  panel.quaternion.copy(worldQuaternion);
-  panelReady = true;
-  pendingPanelRecenter = false;
-  redrawPanel();
+
+const HAND_CHAINS = [
+  ["wrist", "thumb-metacarpal", "thumb-phalanx-proximal", "thumb-phalanx-distal", "thumb-tip"],
+  ["wrist", "index-finger-metacarpal", "index-finger-phalanx-proximal", "index-finger-phalanx-intermediate", "index-finger-phalanx-distal", "index-finger-tip"],
+  ["wrist", "middle-finger-metacarpal", "middle-finger-phalanx-proximal", "middle-finger-phalanx-intermediate", "middle-finger-phalanx-distal", "middle-finger-tip"],
+  ["wrist", "ring-finger-metacarpal", "ring-finger-phalanx-proximal", "ring-finger-phalanx-intermediate", "ring-finger-phalanx-distal", "ring-finger-tip"],
+  ["wrist", "pinky-finger-metacarpal", "pinky-finger-phalanx-proximal", "pinky-finger-phalanx-intermediate", "pinky-finger-phalanx-distal", "pinky-finger-tip"]
+];
+const HAND_JOINT_NAMES = [...new Set(HAND_CHAINS.flat())];
+function getHandJointMap(input) {
+  let map = handJointMaps.get(input);
+  if (!map) {
+    // XRHand is iterable as [jointName, XRJointSpace] pairs.
+    map = new Map(Array.from(input.hand.entries()));
+    handJointMaps.set(input, map);
+  }
+  return map;
+}
+function getHandVisual(input) {
+  let visual = handVisuals.get(input);
+  if (visual) return visual;
+  const group = new THREE.Group();
+  scene.add(group);
+  const jointGeometry = new THREE.SphereGeometry(1, 8, 6);
+  const jointMaterial = new THREE.MeshBasicMaterial({ color: 0xf0c8aa });
+  const boneGeometry = new THREE.CylinderGeometry(0.006, 0.006, 1, 6);
+  const boneMaterial = new THREE.MeshBasicMaterial({ color: 0xe8bda0 });
+  const joints = new Map();
+  for (const name of HAND_JOINT_NAMES) {
+    const mesh = new THREE.Mesh(jointGeometry, jointMaterial);
+    mesh.visible = false;
+    group.add(mesh);
+    joints.set(name, mesh);
+  }
+  const bones = [];
+  const seen = new Set();
+  for (const chain of HAND_CHAINS) {
+    for (let i = 0; i < chain.length - 1; i++) {
+      const a = chain[i], b = chain[i + 1];
+      const key = `${a}|${b}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const mesh = new THREE.Mesh(boneGeometry, boneMaterial);
+      mesh.visible = false;
+      group.add(mesh);
+      bones.push({ a, b, mesh });
+    }
+  }
+  visual = { group, joints, bones };
+  handVisuals.set(input, visual);
+  return visual;
+}
+function updateHandVisual(input, xrFrame, referenceSpace, jointSpaces) {
+  const visual = getHandVisual(input);
+  const positions = new Map();
+  visual.group.visible = true;
+  for (const name of HAND_JOINT_NAMES) {
+    const space = jointSpaces.get(name);
+    const pose = space ? xrFrame.getJointPose(space, referenceSpace) : null;
+    const mesh = visual.joints.get(name);
+    if (!pose) {
+      mesh.visible = false;
+      continue;
+    }
+    const p = pose.transform.position;
+    const position = new THREE.Vector3(p.x, p.y, p.z);
+    positions.set(name, position);
+    mesh.position.copy(position);
+    mesh.scale.setScalar(Math.max(0.0045, pose.radius || 0.007));
+    mesh.visible = true;
+  }
+  const up = new THREE.Vector3(0, 1, 0);
+  for (const bone of visual.bones) {
+    const a = positions.get(bone.a), b = positions.get(bone.b);
+    if (!a || !b) {
+      bone.mesh.visible = false;
+      continue;
+    }
+    const direction = new THREE.Vector3().subVectors(b, a);
+    const length = direction.length();
+    if (length < 0.001) {
+      bone.mesh.visible = false;
+      continue;
+    }
+    bone.mesh.position.copy(a).add(b).multiplyScalar(0.5);
+    bone.mesh.quaternion.setFromUnitVectors(up, direction.normalize());
+    bone.mesh.scale.set(1, length, 1);
+    bone.mesh.visible = true;
+  }
+  return visual;
+}
+
+function updateHandTracking(xrFrame) {
+  if (!xrFrame || !renderer.xr.isPresenting) return;
+  const session = renderer.xr.getSession();
+  const referenceSpace = renderer.xr.getReferenceSpace();
+  if (!session || !referenceSpace) return;
+
+  const inputSources = Array.from(session.inputSources || []);
+  const leftInput = inputSources.find((source) => source.handedness === "left" && source.hand);
+  leftHandMenuActive = Boolean(leftInput);
+
+  // Put the editor panel just above the tracked left wrist and keep its face
+  // turned toward the headset, like a wrist-mounted floating display.
+  if (leftInput) {
+    const leftJointSpaces = getHandJointMap(leftInput);
+    const wristSpace = leftJointSpaces.get("wrist");
+    const wristPose = wristSpace ? xrFrame.getJointPose(wristSpace, referenceSpace) : null;
+    if (wristPose) {
+      const wrist = wristPose.transform.position;
+      const xrCamera = renderer.xr.getCamera(camera);
+      const viewerPosition = xrCamera.getWorldPosition(new THREE.Vector3());
+      if (panel.parent !== scene) {
+        panel.removeFromParent();
+        scene.add(panel);
+      }
+      const wasVisible = panel.visible;
+      panel.position.set(wrist.x, wrist.y + 0.14, wrist.z);
+      panel.lookAt(viewerPosition);
+      panel.scale.setScalar(0.32);
+      panel.visible = true;
+      panelReady = true;
+      if (!leftHandGrip) statusText = "LEFT HAND MENU · Point and pinch buttons; pinch near a part to grab it.";
+      if (!wasVisible) redrawPanel();
+    }
+  } else if (!leftHandGrip) {
+    // Keep the menu visible at its last tracked position during brief tracking
+    // dropouts; it will resume following the wrist when tracking returns.
+  }
+
+  // Thumb-index pinch is the hand equivalent of holding a controller grip.
+  // Hysteresis prevents tiny tracking changes from repeatedly grabbing/releasing.
+  const activeHandSources = new Set();
+  for (const input of inputSources) {
+    if (!input.hand) continue;
+    activeHandSources.add(input);
+    const jointSpaces = getHandJointMap(input);
+    updateHandVisual(input, xrFrame, referenceSpace, jointSpaces);
+    const thumbSpace = jointSpaces.get("thumb-tip");
+    const indexSpace = jointSpaces.get("index-finger-tip");
+    const wristSpace = jointSpaces.get("wrist");
+    if (!thumbSpace || !indexSpace || !wristSpace) continue;
+    const thumbPose = xrFrame.getJointPose(thumbSpace, referenceSpace);
+    const indexPose = xrFrame.getJointPose(indexSpace, referenceSpace);
+    const wristPose = xrFrame.getJointPose(wristSpace, referenceSpace);
+    if (!thumbPose || !indexPose || !wristPose) continue;
+
+    const a = thumbPose.transform.position;
+    const b = indexPose.transform.position;
+    const distance = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+    let proxy = handPoseProxies.get(input);
+    if (!proxy) {
+      proxy = new THREE.Group();
+      scene.add(proxy);
+      handPoseProxies.set(input, proxy);
+    }
+    proxy.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+    const wristRotation = wristPose.transform.orientation;
+    proxy.quaternion.set(wristRotation.x, wristRotation.y, wristRotation.z, wristRotation.w);
+    proxy.updateMatrixWorld(true);
+
+    let state = handPinchStates.get(input);
+    if (!state) {
+      state = { pinching: false };
+      handPinchStates.set(input, state);
+    }
+
+    if (!state.pinching && distance < 0.035) {
+      state.pinching = true;
+      const node = nearestNodeToHand(proxy, 0.34);
+      if (node) {
+        node.group.updateMatrixWorld(true);
+        const offset = proxy.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
+        handDragStates.set(input, { node, proxy, offset });
+        choose(node);
+        setStatus(`Pinching ${node.item.itemID}. Move your hand; release your fingers to place it.`);
+      }
+    } else if (state.pinching && distance > 0.065) {
+      state.pinching = false;
+      if (handDragStates.delete(input)) setStatus("Part placed.");
+    }
+  }
+
+  for (const [input, visual] of handVisuals.entries()) {
+    if (!activeHandSources.has(input)) visual.group.visible = false;
+  }
+  for (const input of handPinchStates.keys()) {
+    if (!activeHandSources.has(input)) {
+      handPinchStates.delete(input);
+      handDragStates.delete(input);
+    }
+  }
+
+  // Apply all active hand drags using the midpoint between thumb and index finger.
+  for (const [input, drag] of handDragStates.entries()) {
+    if (!nodes.includes(drag.node)) {
+      handDragStates.delete(input);
+      continue;
+    }
+    drag.proxy.updateMatrixWorld(true);
+    const desiredWorld = tempMatrix2.copy(drag.proxy.matrixWorld).multiply(drag.offset);
+    const parent = drag.node.group.parent;
+    parent.updateMatrixWorld(true);
+    const local = tempMatrix.copy(parent.matrixWorld).invert().multiply(desiredWorld);
+    local.decompose(drag.node.position, drag.node.quaternion, tempScale);
+    drag.node.group.position.copy(drag.node.position);
+    drag.node.group.quaternion.copy(drag.node.quaternion);
+  }
 }
 
 $("enterVR").addEventListener("click", async () => {
@@ -566,7 +816,7 @@ $("enterVR").addEventListener("click", async () => {
     const supported = await navigator.xr.isSessionSupported("immersive-vr");
     if (!supported) throw new Error("Immersive VR is not supported in this browser.");
     const session = await navigator.xr.requestSession("immersive-vr", {
-      optionalFeatures: ["local-floor", "bounded-floor"]
+      optionalFeatures: ["local-floor", "bounded-floor", "hand-tracking"]
     });
     // The desktop preview camera has an offset; clear it so the headset pose
     // is the only camera transform while rendering inside WebXR.
@@ -575,12 +825,22 @@ $("enterVR").addEventListener("click", async () => {
     camera.updateMatrixWorld(true);
     await renderer.xr.setSession(session);
     $("landing").hidden = true;
-    panel.visible = true;
-    pendingPanelRecenter = true;
-    setStatus("VR started. Placing the floating editor menu…");
+    panel.visible = false;
+    setStatus("VR started. Connecting the left-hand menu…");
     session.addEventListener("end", () => {
       panel.visible = false;
-      pendingPanelRecenter = false;
+      panelReady = false;
+      leftHandGrip = null;
+      leftHandMenuActive = false;
+      handPinchStates.clear();
+      handDragStates.clear();
+      handJointMaps.clear();
+      for (const proxy of handPoseProxies.values()) proxy.removeFromParent();
+      handPoseProxies.clear();
+      for (const visual of handVisuals.values()) visual.group.removeFromParent();
+      handVisuals.clear();
+      panel.removeFromParent();
+      scene.add(panel);
       camera.position.set(0, 1.65, 2.4);
       camera.quaternion.identity();
       camera.updateMatrixWorld(true);
@@ -608,10 +868,10 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
-renderer.setAnimationLoop(() => {
-  if (pendingPanelRecenter && renderer.xr.isPresenting) {
-    placePanelFromHeadset();
-    setStatus("VR ready. Point + trigger to use the menu; grip to grab objects.");
+renderer.setAnimationLoop((time, xrFrame) => {
+  if (renderer.xr.isPresenting) {
+    if (!leftHandMenuActive && !panel.visible) refreshLeftHandAttachment();
+    updateHandTracking(xrFrame);
   }
   updateDrags();
   renderer.render(scene, camera);

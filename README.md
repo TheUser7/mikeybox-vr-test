@@ -1,6 +1,6 @@
-# Goop VR Builder — Immersive VR Edition (Dark-screen fix)
+# Goop VR Builder — Left-Hand Menu + Hand Tracking
 
-This is an experimental, Quest Browser / WebXR prototype. Editing controls are displayed inside immersive VR.
+Experimental Quest Browser / WebXR prototype. The editor runs in immersive VR, with the control panel following the left wrist when hand tracking is available.
 
 ## Publish on GitHub Pages
 
@@ -8,21 +8,25 @@ This is an experimental, Quest Browser / WebXR prototype. Editing controls are d
 2. Upload `index.html`, `style.css`, `app.js`, and `README.md` to the root of your GitHub repository, replacing the previous copies.
 3. Commit the changes to the `main` branch.
 4. Keep GitHub Pages set to **Deploy from a branch → main → /(root)**.
-5. Wait for the Pages deployment to finish, then reload the site in Quest Browser. A full refresh may be needed to clear the old cached JavaScript.
+5. Wait for the Pages deployment to finish, then reload the site in Quest Browser. A full refresh may be needed to clear cached JavaScript.
 
-## What's changed in this build
+## Hand tracking controls
 
-- Added an actual sky dome and unlit floor/object materials so the scene remains visible when an XR browser ignores the normal scene background or lighting.
-- Moved menu placement to the first live XR animation frame, when the headset pose is available, instead of trying to position it immediately after requesting the session.
-- Reset the desktop preview camera offset when entering immersive VR and restore it when leaving.
-- Brightened controller pointer rays.
+- Enable hand tracking on the Quest 3 and open the site in Quest Browser.
+- The editor menu follows the left wrist and faces toward the headset.
+- Point at a menu button with your right index finger and pinch to press it. (The menu can also be aimed at with a controller.)
+- To move a part, bring your thumb and index finger close together near the part, keep them pinched, and move your hand. Open your fingers to release.
+- A simple tracked hand skeleton is rendered while hand tracking is active.
 
-## Controls
+## Controller fallback
 
 - Point and press trigger to select menu controls or objects.
-- Hold grip near the selected object to move and rotate it.
-- Use the floating VR panel to create a root, add attached parts, delete parts, edit item IDs, move, rotate, scale, import and export JSON.
+- Move a controller hand close to a part and hold its grip/squeeze button to grab, move and rotate it. Release to place it.
+
+## Builder features
+
+Create a root, add attached parts, delete parts, edit item IDs with the in-VR keyboard, nudge, rotate, scale, import and export invention JSON.
 
 ## Limitations
 
-This is an alpha prototype. It uses placeholder cubes, not Animal Company models. Item IDs must be entered manually. The generated JSON structure has not been verified in the live game. WebXR requires an HTTPS page and a compatible browser. Quest-specific behavior still needs to be tested on the actual headset.
+This is an alpha prototype. It uses placeholder cubes, not Animal Company models. Item IDs must be entered manually. The generated JSON structure has not been verified in the live game. Hand tracking depends on the Quest Browser/WebXR hand-tracking feature being available and enabled. WebXR requires an HTTPS page. Quest-specific behavior still needs testing on the physical headset.
