@@ -1,8 +1,15 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js";
 
 // Visible release identification: update this tag for each published site build.
-const SITE_VERSION = "ALPHA v0.8.0";
-const SITE_BUILD_ID = "2026.10.31-r1";
+const SITE_VERSION = "ALPHA v0.9.0";
+const SITE_BUILD_ID = "2026.10.31-r2";
+// Built-in selectable item catalog. Weapon/hidden entries are excluded;
+// item IDs are written into the native-style invention JSON export.
+const ITEM_CATALOG = [{"id":"item_ac_cola","name":"AC Cola","category":"Loot"},{"id":"item_alien_cube","name":"Alien Cube","category":"Loot"},{"id":"item_squishy_angler","name":"Angler Toy","category":"Loot"},{"id":"item_apple","name":"Apple","category":"Loot"},{"id":"item_squishy_armstrong","name":"Armstrong Toy","category":"Loot"},{"id":"item_big_cup","name":"Big Cup","category":"Loot"},{"id":"item_squishy_bighead","name":"Big Head Toy","category":"Loot"},{"id":"item_bighead_larva","name":"BigHead Larva","category":"Loot"},{"id":"item_pelican_case","name":"Black Crate","category":"Loot"},{"id":"item_ticket_machine_bulb_blue","name":"Blue Lightbulb","category":"Loot"},{"id":"item_boombox","name":"Boombox","category":"Loot"},{"id":"item_module_boost_1","name":"Boost Module: Tier 1","category":"Loot"},{"id":"item_module_boost_2","name":"Boost Module: Tier 2","category":"Loot"},{"id":"item_module_boost_3","name":"Boost Module: Tier 3","category":"Loot"},{"id":"item_brain_chunk","name":"Brain Matter","category":"Loot"},{"id":"item_server_pad","name":"Broken Tablet","category":"Loot"},{"id":"item_calculator","name":"Calculator","category":"Loot"},{"id":"item_carrot","name":"Carrot","category":"Loot"},{"id":"item_ceo_plaque","name":"CEO Plaque","category":"Loot"},{"id":"item_key_challengearena","name":"Challenge Arena Key","category":"Loot"},{"id":"item_moonrock_cheesy","name":"Cheesy Moon Rock","category":"Loot"},{"id":"item_squishy_chicken","name":"Chicken Toy","category":"Loot"},{"id":"item_ore_hell","name":"Cinder","category":"Loot"},{"id":"item_coconut_shell","name":"Coconut Shell","category":"Loot"},{"id":"item_ore_copper_m","name":"Copper Chunk","category":"Loot"},{"id":"item_cracker","name":"Cracker","category":"Loot"},{"id":"item_crate","name":"Crate","category":"Loot"},{"id":"item_squishy_cutie","name":"Cutie Toy","category":"Loot"},{"id":"item_d20","name":"D20","category":"Loot"},{"id":"item_dna_vial","name":"DNA Vial","category":"Loot"},{"id":"item_disc","name":"DVD","category":"Loot"},{"id":"item_key_factoryboss_easy","name":"Easy Factory Boss Key","category":"Loot"},{"id":"item_electrical_tape","name":"Electrical Tape","category":"Loot"},{"id":"item_toilet_paper_roll_empty","name":"Empty Toilet Paper Roll","category":"Loot"},{"id":"item_harddrive","name":"Encrypted Data","category":"Loot"},{"id":"item_eraser","name":"Eraser","category":"Loot"},{"id":"item_finger_board","name":"Finger Board","category":"Loot"},{"id":"item_special_fishing_rod_radar_part","name":"Fishing Rod Radar Part","category":"Loot"},{"id":"item_fishing_terminal_bait_button","name":"Fishing Terminal Bait Button","category":"Loot"},{"id":"item_floppy3","name":"Floppy Disc","category":"Loot"},{"id":"item_floppy5","name":"Floppy Disc","category":"Loot"},{"id":"item_gameboy","name":"Game Box","category":"Loot"},{"id":"item_squishy_giantthrower","name":"Giant Toy","category":"Loot"},{"id":"item_glitched_banana","name":"Glitchy Banana","category":"Loot"},{"id":"item_squishy_gold_angler","name":"Gold Angler Toy","category":"Loot"},{"id":"item_squishy_gold_armstrong","name":"Gold Armstrong Toy","category":"Loot"},{"id":"item_squishy_gold_bighead","name":"Gold Big Head Toy","category":"Loot"},{"id":"item_squishy_gold_chicken","name":"Gold Chicken Toy","category":"Loot"},{"id":"item_ore_gold_m","name":"Gold Chunk","category":"Loot"},{"id":"item_squishy_gold_cutie","name":"Gold Cutie Toy","category":"Loot"},{"id":"item_squishy_gold_giantthrower","name":"Gold Giant Toy","category":"Loot"},{"id":"item_squishy_gold_puppet","name":"Gold Puppet Toy","category":"Loot"},{"id":"item_squishy_gold_redgreen","name":"Gold Red Green Toy","category":"Loot"},{"id":"item_squishy_gold_segway","name":"Gold Segway Toy","category":"Loot"},{"id":"item_squishy_gold_smiley","name":"Gold Smiley Toy","category":"Loot"},{"id":"item_goldcoin","name":"Golden Coin","category":"Loot"},{"id":"item_goopfish","name":"Goopfish","category":"Loot"},{"id":"item_quest_key_graveyard","name":"Graveyard Key","category":"Loot"},{"id":"item_module_gravity_1","name":"Gravity Module","category":"Loot"},{"id":"item_key_factoryboss_hard","name":"Hard Factory Boss Key","category":"Loot"},{"id":"item_heartchocolatebox","name":"Heart Chocolate Box","category":"Loot"},{"id":"item_heart_chunk","name":"Heart Chunk","category":"Loot"},{"id":"item_module_hull_2","name":"Hull Module: Tier 2","category":"Loot"},{"id":"item_module_hull_3","name":"Hull Module: Tier 3","category":"Loot"},{"id":"item_shadowboss_key","name":"Key of the Fallen One","category":"Loot"},{"id":"item_keycard","name":"Keycard","category":"Loot"},{"id":"item_ore_copper_l","name":"Large Copper Chunk","category":"Loot"},{"id":"item_ore_gold_l","name":"Large Gold Chunk","category":"Loot"},{"id":"item_ore_silver_l","name":"Large Silver Chunk","category":"Loot"},{"id":"item_key_factoryboss_medium","name":"Medium Factory Boss Key","category":"Loot"},{"id":"item_toilet_paper_mega","name":"Mega Toilet Paper","category":"Loot"},{"id":"item_randombox_modules","name":"Module Loot Box","category":"Loot"},{"id":"item_momboss_box","name":"Mom Box","category":"Loot"},{"id":"item_moonrock","name":"Moon Rock","category":"Loot"},{"id":"item_mug","name":"Mug","category":"Loot"},{"id":"item_boombox_neon","name":"Neon Boombox","category":"Loot"},{"id":"item_nut","name":"Nut","category":"Loot"},{"id":"item_nut_drop","name":"Nut Drop","category":"Loot"},{"id":"item_orange","name":"Orange","category":"Loot"},{"id":"item_ticket_machine_bulb_orange","name":"Orange Lightbulb","category":"Loot"},{"id":"item_painters_tape","name":"Painters Tape","category":"Loot"},{"id":"item_painting_canvas","name":"Painting Canvas","category":"Loot"},{"id":"item_paperpack","name":"Paper","category":"Loot"},{"id":"item_pipe","name":"Pipe","category":"Loot"},{"id":"item_pumpkin_pie","name":"Pumpkin Pie","category":"Loot"},{"id":"item_squishy_puppet","name":"Puppet Toy","category":"Loot"},{"id":"item_rare_card","name":"Rare Trading Card","category":"Loot"},{"id":"item_flashlight_red","name":"Red Flashlight","category":"Loot"},{"id":"item_squishy_redgreen","name":"Red Green Toy","category":"Loot"},{"id":"item_rubberducky","name":"Rubber Ducky","category":"Loot"},{"id":"item_ruby","name":"Ruby","category":"Loot"},{"id":"item_scissors","name":"Scissors","category":"Loot"},{"id":"item_squishy_segway","name":"Segway Toy","category":"Loot"},{"id":"item_ore_silver_m","name":"Silver Chunk","category":"Loot"},{"id":"item_ore_copper_s","name":"Small Copper Chunk","category":"Loot"},{"id":"item_ore_gold_s","name":"Small Gold Chunk","category":"Loot"},{"id":"item_ore_silver_s","name":"Small Silver Chunk","category":"Loot"},{"id":"item_squishy_smiley","name":"Smiley Toy","category":"Loot"},{"id":"item_stapler","name":"Stapler","category":"Loot"},{"id":"item_tapedispenser","name":"Tape Dispenser","category":"Loot"},{"id":"item_toilet_paper","name":"Toilet Paper","category":"Loot"},{"id":"item_token_circus","name":"Token","category":"Loot"},{"id":"item_module_tractor_beam_1","name":"Tractor Beam Module","category":"Loot"},{"id":"item_train_whistle","name":"Train Whistle","category":"Loot"},{"id":"item_trophy","name":"Trophy","category":"Loot"},{"id":"item_turkey_leg","name":"Turkey Leg","category":"Loot"},{"id":"item_turkey_whole","name":"Turkey Whole","category":"Loot"},{"id":"item_upsidedown_loot","name":"Upsidedown Loot","category":"Loot"},{"id":"item_broom_halloween","name":"Wicked Broom","category":"Loot"},{"id":"item_wood_log","name":"Wood Log","category":"Loot"},{"id":"item_wooden_stool","name":"Wooden Stool","category":"Loot"},{"id":"item_ticket_machine_bulb_yellow","name":"Yellow Lightbulb","category":"Loot"},{"id":"item_alchemist_book","name":"Alchemist Book","category":"Toys"},{"id":"item_midipad_animal","name":"Audio Zoo 9000","category":"Toys"},{"id":"item_backrooms_floor","name":"Backrooms Carpet","category":"Toys"},{"id":"item_backrooms_ceiling","name":"Backrooms Ceiling Tiles","category":"Toys"},{"id":"item_backrooms_chair","name":"Backrooms Chair","category":"Toys"},{"id":"item_backrooms_corner_in","name":"Backrooms Inner Corner","category":"Toys"},{"id":"item_backrooms_lamp","name":"Backrooms Lamp","category":"Toys"},{"id":"item_backrooms_corner_out","name":"Backrooms Outer Corner","category":"Toys"},{"id":"item_backrooms_pillar","name":"Backrooms Pillar","category":"Toys"},{"id":"item_backrooms_wall_1m","name":"Backrooms Wall 1m","category":"Toys"},{"id":"item_backrooms_wall_2m","name":"Backrooms Wall 2m","category":"Toys"},{"id":"item_balloon","name":"Balloon","category":"Toys"},{"id":"item_clapper","name":"Clapper","category":"Toys"},{"id":"item_boombox_fishing","name":"Fishing Boombox","category":"Toys"},{"id":"item_football","name":"Football","category":"Toys"},{"id":"item_ghostie_racket","name":"Ghostie Racket","category":"Toys"},{"id":"item_ukulele_gold","name":"Golden Ukulele","category":"Toys"},{"id":"item_hawaiian_drum","name":"Hawaiian Drums","category":"Toys"},{"id":"item_balloon_heart","name":"Heart Balloon","category":"Toys"},{"id":"item_module_hull_1","name":"Hull Module: Tier 1","category":"Toys"},{"id":"item_megaphone","name":"Megaphone","category":"Toys"},{"id":"item_moonrock_friend","name":"Pet Moon Rock","category":"Toys"},{"id":"item_pogostick","name":"Pogostick","category":"Toys"},{"id":"item_repair_wrench","name":"Repair Wrench","category":"Toys"},{"id":"item_safe","name":"Safe","category":"Toys"},{"id":"item_skipole","name":"Ski Pole","category":"Toys"},{"id":"item_balloon_smiley","name":"Smiley Balloon","category":"Toys"},{"id":"item_soccer_ball","name":"Soccer Ball","category":"Toys"},{"id":"item_soccer_goalposts","name":"Soccer Goal Posts","category":"Toys"},{"id":"item_midipad","name":"Song-o-Matic 2000","category":"Toys"},{"id":"item_module_stasis_1","name":"Stasis Module","category":"Toys"},{"id":"item_stopwatch","name":"Stopwatch","category":"Toys"},{"id":"item_theremin","name":"Theremin","category":"Toys"},{"id":"item_ukulele","name":"Ukulele","category":"Toys"},{"id":"item_halloween_voodoodoll","name":"Voodoo Doll","category":"Toys"},{"id":"item_vuvuzela","name":"Vuvuzela","category":"Toys"},{"id":"item_whoopie","name":"Whoopie","category":"Toys"},{"id":"item_egg_easter_blue","name":"Blue Bunny Egg","category":"Construction"},{"id":"item_halloween_bone_hand","name":"Bone Hand","category":"Construction"},{"id":"item_steampunk_lamp","name":"Brass Lamp","category":"Construction"},{"id":"item_steampunk_wings","name":"Brass Wings","category":"Construction"},{"id":"item_halloween_brick_column","name":"Brick Column","category":"Construction"},{"id":"item_metal_rod_xmas","name":"Candy Cane Rod","category":"Construction"},{"id":"item_truss_xmas","name":"Candy Cane Truss","category":"Construction"},{"id":"item_castle_archway","name":"Castle Archway","category":"Construction"},{"id":"item_castle_awning","name":"Castle Awning","category":"Construction"},{"id":"item_castle_door","name":"Castle Door","category":"Construction"},{"id":"item_castle_roof_topper","name":"Castle Roof Topper","category":"Construction"},{"id":"item_castle_steps","name":"Castle Steps","category":"Construction"},{"id":"item_castle_tower","name":"Castle Tower","category":"Construction"},{"id":"item_castle_turret_topper","name":"Castle Turret Topper","category":"Construction"},{"id":"item_castle_wall","name":"Castle Wall","category":"Construction"},{"id":"item_halloween_ceiling_light","name":"Ceiling Lamp","category":"Construction"},{"id":"item_halloween_fence_arch","name":"Cemetery Arch","category":"Construction"},{"id":"item_halloween_chandelier","name":"Chandelier","category":"Construction"},{"id":"item_halloween_coffin","name":"Coffin","category":"Construction"},{"id":"item_steampunk_gear_big","name":"Cog (Large)","category":"Construction"},{"id":"item_steampunk_gear_small","name":"Cog (Small)","category":"Construction"},{"id":"item_halloween_ceiling","name":"Creaky Ceiling","category":"Construction"},{"id":"item_halloween_door","name":"Creaky Door","category":"Construction"},{"id":"item_halloween_floor","name":"Creaky Floorboards","category":"Construction"},{"id":"item_halloween_chicken","name":"Creepy Chicken","category":"Construction"},{"id":"item_halloween_crypt_lock","name":"Crypt Lock","category":"Construction"},{"id":"item_cube_frame","name":"Cube Frame","category":"Construction"},{"id":"item_metal_rod_curved","name":"Curved Metal Rod","category":"Construction"},{"id":"item_halloween_couch","name":"Dusty Couch","category":"Construction"},{"id":"item_metal_plate_xmas","name":"Festive Plate","category":"Construction"},{"id":"item_steampunk_lightbulb","name":"Filament Bulb","category":"Construction"},{"id":"item_halloween_fireplace","name":"Fireplace","category":"Construction"},{"id":"item_robot_arm_left_galaxy","name":"Galaxy Left Robot Arm","category":"Construction"},{"id":"item_robot_arm_right_galaxy","name":"Galaxy Right Robot Arm","category":"Construction"},{"id":"item_steampunk_gear_wheels","name":"Geared Wheels","category":"Construction"},{"id":"item_halloween_web","name":"Giant Cobweb","category":"Construction"},{"id":"item_steel_beam_xmas","name":"Gingerbread Beam","category":"Construction"},{"id":"item_eye_googly","name":"Googly Eye","category":"Construction"},{"id":"item_goop","name":"Goop","category":"Construction"},{"id":"item_halloween_doorway","name":"Haunted Doorway","category":"Construction"},{"id":"item_halloween_staircase","name":"Haunted Staircase","category":"Construction"},{"id":"item_halloween_wall","name":"Haunted Wall","category":"Construction"},{"id":"item_castle_archway_ice","name":"Ice Castle Archway","category":"Construction"},{"id":"item_castle_awning_ice","name":"Ice Castle Awning","category":"Construction"},{"id":"item_castle_door_ice","name":"Ice Castle Door","category":"Construction"},{"id":"item_castle_roof_topper_ice","name":"Ice Castle Roof Topper","category":"Construction"},{"id":"item_castle_steps_ice","name":"Ice Castle Steps","category":"Construction"},{"id":"item_castle_throne_ice","name":"Ice Castle Throne","category":"Construction"},{"id":"item_castle_tower_ice","name":"Ice Castle Tower","category":"Construction"},{"id":"item_castle_turret_topper_ice","name":"Ice Castle Turret Topper","category":"Construction"},{"id":"item_castle_wall_ice","name":"Ice Castle Wall","category":"Construction"},{"id":"item_steampunk_scaffolding","name":"Iron Scaffolding","category":"Construction"},{"id":"item_joystick","name":"Joystick","category":"Construction"},{"id":"item_joystick_inv_y","name":"Joystick (Inversed Y)","category":"Construction"},{"id":"item_robot_arm_left","name":"Left Robot Arm","category":"Construction"},{"id":"item_mannequin_head","name":"Mannequin Head","category":"Construction"},{"id":"item_mannequin_arm_left","name":"Mannequin Left Arm","category":"Construction"},{"id":"item_mannequin_leg_left","name":"Mannequin Left Leg","category":"Construction"},{"id":"item_mannequin_arm_right","name":"Mannequin Right Arm","category":"Construction"},{"id":"item_mannequin_leg_right","name":"Mannequin Right Leg","category":"Construction"},{"id":"item_mannequin_torso","name":"Mannequin Torso","category":"Construction"},{"id":"item_metal_ball","name":"Metal Ball","category":"Construction"},{"id":"item_metal_plate","name":"Metal Plate","category":"Construction"},{"id":"item_metal_rod","name":"Metal Rod","category":"Construction"},{"id":"item_metal_triangle","name":"Metal Triangle","category":"Construction"},{"id":"item_halloween_pillow","name":"Musty Pillow","category":"Construction"},{"id":"item_halloween_dresser","name":"Old Dresser","category":"Construction"},{"id":"item_steampunk_gear_open_big","name":"Open Cog (Large)","category":"Construction"},{"id":"item_steampunk_gear_open_small","name":"Open Cog (Small)","category":"Construction"},{"id":"item_metal_ball_xmas","name":"Peppermint Ball","category":"Construction"},{"id":"item_plank","name":"Plank","category":"Construction"},{"id":"item_wood_pallet_easter","name":"Polka Dot Pallet","category":"Construction"},{"id":"item_plank_easter","name":"Polka Dot Plank","category":"Construction"},{"id":"item_truss_easter","name":"Polka Dot Truss","category":"Construction"},{"id":"item_egg_easter_red","name":"Red Bunny Egg","category":"Construction"},{"id":"item_steampunk_redgreen_hand","name":"RedGreen Hand","category":"Construction"},{"id":"item_remote_controller","name":"Remote Controller","category":"Construction"},{"id":"item_robot_arm_right","name":"Right Robot Arm","category":"Construction"},{"id":"item_robot_head","name":"Robot Head","category":"Construction"},{"id":"item_plate_round","name":"Round Plate","category":"Construction"},{"id":"item_metal_plate_small","name":"Small Metal Plate","category":"Construction"},{"id":"item_metal_rod_small","name":"Small Metal Rod","category":"Construction"},{"id":"item_truss_small","name":"Small Truss","category":"Construction"},{"id":"item_steampunk_smokestack","name":"Smokestack","category":"Construction"},{"id":"item_steampunk_gear_spikes_big","name":"Spiked Cog (Large)","category":"Construction"},{"id":"item_steampunk_gear_spikes_small","name":"Spiked Cog (Small)","category":"Construction"},{"id":"item_halloween_fence","name":"Spiked Fence","category":"Construction"},{"id":"item_halloween_tree","name":"Spooky Tree","category":"Construction"},{"id":"item_pennant_spring","name":"Spring Pennants","category":"Construction"},{"id":"item_steampunk_clip","name":"Steampunk Clip","category":"Construction"},{"id":"item_steel_beam","name":"Steel Beam","category":"Construction"},{"id":"item_steampunk_coils_big","name":"Tesla Coil (Large)","category":"Construction"},{"id":"item_steampunk_coils_small","name":"Tesla Coil (Small)","category":"Construction"},{"id":"item_halloween_tomb","name":"Tomb","category":"Construction"},{"id":"item_halloween_tombstone","name":"Tombstone","category":"Construction"},{"id":"item_halloween_tombstone_tall","name":"Tombstone (Tall)","category":"Construction"},{"id":"item_truss","name":"Truss","category":"Construction"},{"id":"item_halloween_wall_light","name":"Wall Sconce","category":"Construction"},{"id":"item_wood_pallet","name":"Wood Pallet","category":"Construction"},{"id":"item_egg_easter_yellow","name":"Yellow Bunny Egg","category":"Construction"},{"id":"item_snowboard_2","name":"67 Snowboard","category":"Bags & Gadgets"},{"id":"item_snowboard","name":"AC Snowboard","category":"Bags & Gadgets"},{"id":"item_backpack_space","name":"Astronaut Backpack","category":"Bags & Gadgets"},{"id":"item_backpack","name":"Backpack","category":"Bags & Gadgets"},{"id":"item_backpack_bankrobber","name":"Bank Robber backpack","category":"Bags & Gadgets"},{"id":"item_film_boom_mic","name":"Boom Mic","category":"Bags & Gadgets"},{"id":"item_box_fan","name":"Box Fan","category":"Bags & Gadgets"},{"id":"item_broom","name":"Broom","category":"Bags & Gadgets"},{"id":"item_cardboard_box","name":"Cardboard Box","category":"Bags & Gadgets"},{"id":"item_cardboard_dragon_body","name":"Cardboard Dragon Body","category":"Bags & Gadgets"},{"id":"item_cardboard_dragon_head","name":"Cardboard Dragon Head","category":"Bags & Gadgets"},{"id":"item_grappling_hook","name":"Chain Grab","category":"Bags & Gadgets"},{"id":"item_fish_clam_hookshot","name":"Clam Hookshot","category":"Bags & Gadgets"},{"id":"item_umbrella_clover","name":"Clover Umbrella","category":"Bags & Gadgets"},{"id":"item_film_directors_tablet","name":"Directors Tablet","category":"Bags & Gadgets"},{"id":"item_disposable_camera","name":"Disposable Camera","category":"Bags & Gadgets"},{"id":"item_film_camera","name":"Film Camera","category":"Bags & Gadgets"},{"id":"item_film_light","name":"Film Light","category":"Bags & Gadgets"},{"id":"item_film_filter_brighten","name":"Filter Brighten","category":"Bags & Gadgets"},{"id":"item_film_filter_crisp","name":"Filter Crisp","category":"Bags & Gadgets"},{"id":"item_film_filter_darken","name":"Filter Darken","category":"Bags & Gadgets"},{"id":"item_film_filter_dreamy","name":"Filter Dreamy","category":"Bags & Gadgets"},{"id":"item_film_filter_grain","name":"Filter Grain","category":"Bags & Gadgets"},{"id":"item_film_filter_noir","name":"Filter Noir","category":"Bags & Gadgets"},{"id":"item_backpack_fish","name":"Fish Backpack","category":"Bags & Gadgets"},{"id":"item_snowboard_3","name":"Flaming Eye Snowboard","category":"Bags & Gadgets"},{"id":"item_flashlight","name":"Flashlight","category":"Bags & Gadgets"},{"id":"item_backpack_frog","name":"Frog Backpack","category":"Bags & Gadgets"},{"id":"item_flashlight_galaxy","name":"Galaxy Flashlight","category":"Bags & Gadgets"},{"id":"item_hookshot_galaxy","name":"Galaxy Hookshot","category":"Bags & Gadgets"},{"id":"item_hoverpad_galaxy","name":"Galaxy Hoverpad","category":"Bags & Gadgets"},{"id":"item_snowboard_galaxy","name":"Galaxy Snowboard","category":"Bags & Gadgets"},{"id":"item_film_gel_blue","name":"Gel Blue","category":"Bags & Gadgets"},{"id":"item_film_gel_green","name":"Gel Green","category":"Bags & Gadgets"},{"id":"item_film_gel_red","name":"Gel Red","category":"Bags & Gadgets"},{"id":"item_glowstick","name":"Glowstick","category":"Bags & Gadgets"},{"id":"item_backpack_gold","name":"Gold Backpack","category":"Bags & Gadgets"},{"id":"item_hookshot_gold","name":"Gold Hookshot","category":"Bags & Gadgets"},{"id":"item_quiver_heart","name":"Heart Quiver","category":"Bags & Gadgets"},{"id":"item_hermes_staff","name":"Hermes Staff","category":"Bags & Gadgets"},{"id":"item_hookshot","name":"Hookshot","category":"Bags & Gadgets"},{"id":"item_hoverpad","name":"Hoverpad","category":"Bags & Gadgets"},{"id":"item_film_interview_mic","name":"Interview Mic","category":"Bags & Gadgets"},{"id":"item_jetpack","name":"Jetpack","category":"Bags & Gadgets"},{"id":"item_lantern_cny","name":"Lantern","category":"Bags & Gadgets"},{"id":"item_backpack_large_base","name":"Large Backpack","category":"Bags & Gadgets"},{"id":"item_backpack_large_basketball","name":"Large Basketball Print Backpack","category":"Bags & Gadgets"},{"id":"item_backpack_large_clover","name":"Large Clover Print Backpack","category":"Bags & Gadgets"},{"id":"item_flashlight_mega","name":"Mega Flashlight","category":"Bags & Gadgets"},{"id":"item_backpack_monkey","name":"Monkey Backpack","category":"Bags & Gadgets"},{"id":"item_shredder","name":"Nut Shredder","category":"Bags & Gadgets"},{"id":"item_hoverboard_pink","name":"Pink Hoverboard","category":"Bags & Gadgets"},{"id":"item_plunger","name":"Plunger","category":"Bags & Gadgets"},{"id":"item_portable_safe_zone","name":"Portable Safe Zone","category":"Bags & Gadgets"},{"id":"item_portable_teleporter","name":"Portable Teleporter","category":"Bags & Gadgets"},{"id":"item_prop_scanner","name":"Prop Scanner","category":"Bags & Gadgets"},{"id":"item_hoverboard","name":"Purple Hoverboard","category":"Bags & Gadgets"},{"id":"item_quiver","name":"Quiver","category":"Bags & Gadgets"},{"id":"item_ring_buoy","name":"Ring Buoy","category":"Bags & Gadgets"},{"id":"item_robo_dino","name":"RoboDino5000","category":"Bags & Gadgets"},{"id":"item_robo_monke","name":"RoboMonke2000","category":"Bags & Gadgets"},{"id":"item_saddle","name":"Saddle","category":"Bags & Gadgets"},{"id":"item_backpack_santasack","name":"Santa Sack","category":"Bags & Gadgets"},{"id":"item_skishoe","name":"Ski Shoe (Blue)","category":"Bags & Gadgets"},{"id":"item_skishoe_2","name":"Ski Shoe (Green)","category":"Bags & Gadgets"},{"id":"item_skishoe_3","name":"Ski Shoe (Red)","category":"Bags & Gadgets"},{"id":"item_skishoe_4","name":"Ski Shoe (Yellow)","category":"Bags & Gadgets"},{"id":"item_hoverboard_sky","name":"Sky Hoverboard","category":"Bags & Gadgets"},{"id":"item_backpack_small_base","name":"Small Backpack","category":"Bags & Gadgets"},{"id":"item_snowboard_4","name":"Snow Snowboard","category":"Bags & Gadgets"},{"id":"item_snowboard_auto","name":"Special Snowboard","category":"Bags & Gadgets"},{"id":"item_umbrella_squirrel","name":"Squirrel Umbrella","category":"Bags & Gadgets"},{"id":"item_sticker_dispenser","name":"Sticker Dispenser","category":"Bags & Gadgets"},{"id":"item_tablet","name":"Tablet","category":"Bags & Gadgets"},{"id":"item_tele_pearl","name":"Tele Pearl","category":"Bags & Gadgets"},{"id":"item_trampoline","name":"Trampoline","category":"Bags & Gadgets"},{"id":"item_film_tripod","name":"Tripod","category":"Bags & Gadgets"},{"id":"item_umbrella","name":"Umbrella","category":"Bags & Gadgets"},{"id":"item_wisplantern","name":"Wisp Lantern","category":"Bags & Gadgets"},{"id":"item_fish_redacted","name":"[REDACTED]","category":"Fishing"},{"id":"item_fish_anglerfish","name":"Anglerfish","category":"Fishing"},{"id":"item_bamboo_fishing_rod","name":"Bamboo Fishing Rod","category":"Fishing"},{"id":"item_basic_fishing_rod","name":"Basic Fishing Rod","category":"Fishing"},{"id":"item_bait_beetle","name":"Beetle","category":"Fishing"},{"id":"item_fish_big_shark","name":"Big Shark","category":"Fishing"},{"id":"item_fish_boomfish","name":"Boomfish","category":"Fishing"},{"id":"item_fish_boot","name":"Boot","category":"Fishing"},{"id":"item_fish_bottled_message","name":"Bottled Message","category":"Fishing"},{"id":"item_fish_carp","name":"Carp","category":"Fishing"},{"id":"item_fish_chewna","name":"Chewna","category":"Fishing"},{"id":"item_fish_cowfish","name":"Cowfish","category":"Fishing"},{"id":"item_fish_crappie","name":"Crappie","category":"Fishing"},{"id":"item_fish_crispie","name":"Crispie","category":"Fishing"},{"id":"item_fish_cube","name":"Cursed Cubefish","category":"Fishing"},{"id":"item_fish_diamond_jade_koi","name":"Diamond Jade Koi","category":"Fishing"},{"id":"item_fish_dollar_bill","name":"Dollar Bill","category":"Fishing"},{"id":"item_fish_dragonfish","name":"Dragon Fish","category":"Fishing"},{"id":"item_bait_fly","name":"Fly","category":"Fishing"},{"id":"item_bait_glowworm","name":"Glow Worm","category":"Fishing"},{"id":"item_fish_gold_fish","name":"Gold Fish","category":"Fishing"},{"id":"item_fish_hydracarp","name":"Hydracarp","category":"Fishing"},{"id":"item_fish_irontusk","name":"Irontusk","category":"Fishing"},{"id":"item_fish_kissy","name":"Kissy","category":"Fishing"},{"id":"item_lava_fishing_rod","name":"Lava Fishing Rod","category":"Fishing"},{"id":"item_fish_license_plate","name":"License Plate","category":"Fishing"},{"id":"item_fish_magma_carp","name":"Magma Carp","category":"Fishing"},{"id":"item_bait_magmar_ball","name":"Magmar Ball","category":"Fishing"},{"id":"item_fish_teeth","name":"Meateating Spiritfish","category":"Fishing"},{"id":"item_bait_mouse_trap","name":"Mouse Trap","category":"Fishing"},{"id":"item_fish_nebula_fish","name":"Nebula","category":"Fishing"},{"id":"item_glowing_fishing_rod","name":"Neon Fishing Rod","category":"Fishing"},{"id":"item_fish_nutfish","name":"Nutfish","category":"Fishing"},{"id":"item_fish_pufferfish","name":"Pufferfish","category":"Fishing"},{"id":"item_fish_rotten_fish","name":"Rotten Fish","category":"Fishing"},{"id":"item_fish_salmon","name":"Salmon","category":"Fishing"},{"id":"item_fish_salmonster","name":"Salmonster","category":"Fishing"},{"id":"item_bait_sardine","name":"Sardine","category":"Fishing"},{"id":"item_fish_scaldfish","name":"Scaldfish","category":"Fishing"},{"id":"item_fish_seahorse","name":"Seahorse","category":"Fishing"},{"id":"item_bait_shell","name":"Shell","category":"Fishing"},{"id":"item_special_fishing_rod","name":"Special Fishing Rod","category":"Fishing"},{"id":"item_fish_spicy_salmon","name":"Spicy Salmon","category":"Fishing"},{"id":"item_bait_starfish","name":"Starfish","category":"Fishing"},{"id":"item_fish_triclops","name":"Triclops","category":"Fishing"},{"id":"item_fish_tuna","name":"Tuna","category":"Fishing"},{"id":"item_bait_wallet","name":"Wallet","category":"Fishing"},{"id":"item_fish_yellowcake","name":"Yellowcake","category":"Fishing"},{"id":"item_banana_chips","name":"Banana Chips","category":"Consumables"},{"id":"item_fungi_blue","name":"Blue Shroom","category":"Consumables"},{"id":"item_burrito","name":"Burrito","category":"Consumables"},{"id":"item_beans","name":"Can of Beans","category":"Consumables"},{"id":"item_company_ration","name":"Company Ration","category":"Consumables"},{"id":"item_company_ration_heal","name":"Company Ration","category":"Consumables"},{"id":"item_hot_cocoa","name":"Hot Chocolate","category":"Consumables"},{"id":"item_shrinking_broccoli","name":"Micro Broccoli","category":"Consumables"},{"id":"item_pineapple","name":"Pineapple","category":"Consumables"},{"id":"item_prune_juice","name":"Prune Juice","category":"Consumables"},{"id":"item_fungi_red","name":"Red Shroom","category":"Consumables"},{"id":"item_stinky_cheese","name":"Stinky Cheese","category":"Consumables"}];
+const ITEM_CATEGORIES = ["Loot", "Toys", "Construction", "Bags & Gadgets", "Fishing", "Consumables"];
+const ITEM_PAGE_SIZE = 8;
+const UNSUPPORTED_ITEM_ID_PATTERN = /weapon|gun|pistol|rifle|shotgun|grenade|bomb|blade|sword|knife|knives|axe|arrow|ammo|bullet|cannon|launcher|spear|bow|crossbow|mine|explosive|rocket|dart|shank|machete|katana|harpoon|flamethrower|blaster|missile|blood|corpse|dead|gore|skull|blast|laser|joust|lance|murder|zombie|radiation|radioactive|uranium|toxic|poison/i;
+const ITEM_CATALOG_BY_ID = new Map(ITEM_CATALOG.map((entry) => [entry.id, entry]));
 
 const $ = (id) => document.getElementById(id);
 const scene = new THREE.Scene();
@@ -125,6 +132,10 @@ let gizmoEnabled = true;
 let rightBWasPressed = false;
 let nextId = 1;
 let pendingItemID = "item_crate";
+let itemCatalogOpen = false;
+let itemCatalogCategoryIndex = 0;
+let itemCatalogPage = 0;
+let keyboardTarget = "selected";
 let keyboardDraft = "item_crate";
 let keyboardOpen = false;
 let snapSettingsOpen = false;
@@ -572,17 +583,18 @@ function drawPanelBackground(title) {
 }
 function drawMainPanel() {
   clearPanel();
-  const chosen = selected ? selected.item.itemID : "Nothing selected";
   drawPanelBackground("GOOP VR BUILDER");
-  addPanelText(chosen, 0, 0.55, 1.52, 0.10, 31, "#d6e5ed");
+  const selectedLabel = selected ? `SELECTED: ${getItemDisplayName(selected.item.itemID)}` : "SELECTED: NONE";
+  addPanelText(selectedLabel, 0, 0.56, 1.52, 0.085, 23, "#d6e5ed");
+  addPanelText(`NEXT ITEM: ${getItemDisplayName(pendingItemID)}`, 0, 0.45, 1.52, 0.075, 21, "#f8df9a");
 
-  addButton("NEW ROOT", "newRoot", -0.53, 0.36, 0.48, 0.15, "good");
-  addButton("ADD PART", "addPart", 0, 0.36, 0.48, 0.15, "good");
-  addButton("DELETE", "delete", 0.53, 0.36, 0.48, 0.15, "danger");
+  addButton("NEW ROOT", "newRoot", -0.53, 0.30, 0.48, 0.15, "good");
+  addButton("ADD PART", "addPart", 0, 0.30, 0.48, 0.15, "good");
+  addButton("DELETE", "delete", 0.53, 0.30, 0.48, 0.15, "danger");
 
-  addButton("EDIT ID", "editID", -0.53, 0.15, 0.48, 0.15);
-  addButton("EXPORT", "export", 0, 0.15, 0.48, 0.15, "good");
-  addButton("IMPORT", "import", 0.53, 0.15, 0.48, 0.15);
+  addButton("ITEMS", "openItemCatalog", -0.53, 0.09, 0.48, 0.15, "active");
+  addButton("EXPORT", "export", 0, 0.09, 0.48, 0.15, "good");
+  addButton("IMPORT", "import", 0.53, 0.09, 0.48, 0.15);
 
   if (gizmoEnabled) {
     addPanelText("GIZMO ON · FULL EDIT MODE", 0, -0.04, 1.48, 0.09, 25, "#91e3c4");
@@ -600,6 +612,59 @@ function drawMainPanel() {
     addPanelText("PLAYER SCALING + GIZMO HANDLES DISABLED", 0, -0.65, 1.58, 0.07, 15, "#dfb18b");
   }
   addButton("SNAP SETTINGS", "snapSettings", 0, -0.87, 0.92, 0.11, "active");
+}
+function getItemDisplayName(id) {
+  return ITEM_CATALOG_BY_ID.get(id)?.name || String(id || "Unknown item").replace(/^item_/, "").replace(/_/g, " ");
+}
+function getCatalogCategoryItems() {
+  const category = ITEM_CATEGORIES[itemCatalogCategoryIndex] || ITEM_CATEGORIES[0];
+  return ITEM_CATALOG.filter((entry) => entry.category === category);
+}
+function openItemCatalog() {
+  itemCatalogOpen = true;
+  keyboardOpen = false;
+  snapSettingsOpen = false;
+  snapValueKeyboardOpen = false;
+  const current = ITEM_CATALOG_BY_ID.get(pendingItemID);
+  if (current) {
+    itemCatalogCategoryIndex = Math.max(0, ITEM_CATEGORIES.indexOf(current.category));
+    const categoryItems = getCatalogCategoryItems();
+    const index = categoryItems.findIndex((entry) => entry.id === pendingItemID);
+    itemCatalogPage = index >= 0 ? Math.floor(index / ITEM_PAGE_SIZE) : 0;
+  } else {
+    itemCatalogCategoryIndex = 0;
+    itemCatalogPage = 0;
+  }
+  redrawPanel();
+}
+function drawItemCatalogPanel() {
+  clearPanel();
+  drawPanelBackground("CHOOSE AN ITEM");
+  addPanelText(`NEXT: ${getItemDisplayName(pendingItemID)}`, 0, 0.53, 1.52, 0.085, 25, "#f8df9a");
+
+  addButton("◀", "catalogCategoryPrev", -0.55, 0.32, 0.25, 0.13, "muted");
+  addPanelText(ITEM_CATEGORIES[itemCatalogCategoryIndex], 0, 0.32, 0.88, 0.085, 22, "#9ee5d1");
+  addButton("▶", "catalogCategoryNext", 0.55, 0.32, 0.25, 0.13, "muted");
+
+  const entries = getCatalogCategoryItems();
+  const pageCount = Math.max(1, Math.ceil(entries.length / ITEM_PAGE_SIZE));
+  itemCatalogPage = THREE.MathUtils.clamp(itemCatalogPage, 0, pageCount - 1);
+  const start = itemCatalogPage * ITEM_PAGE_SIZE;
+  const visible = entries.slice(start, start + ITEM_PAGE_SIZE);
+  const columns = [-0.415, 0.415];
+  const rows = [0.08, -0.12, -0.32, -0.52];
+  visible.forEach((entry, index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    addButton(entry.name, `catalogPick:${entry.id}`, columns[col], rows[row], 0.78, 0.15, entry.id === pendingItemID ? "active" : "normal");
+  });
+  if (visible.length === 0) addPanelText("NO ITEMS IN THIS CATEGORY", 0, -0.25, 1.45, 0.10, 22, "#f0c6a5");
+
+  addButton("PREV", "catalogPagePrev", -0.49, -0.72, 0.38, 0.12, "muted");
+  addPanelText(`PAGE ${itemCatalogPage + 1}/${pageCount} · ${entries.length} ITEMS`, 0, -0.72, 0.70, 0.075, 17, "#d6e5ed");
+  addButton("NEXT", "catalogPageNext", 0.49, -0.72, 0.38, 0.12, "muted");
+  addButton("CUSTOM ID", "catalogCustomID", -0.40, -0.90, 0.68, 0.11, "active");
+  addButton("BACK", "catalogBack", 0.40, -0.90, 0.68, 0.11, "muted");
 }
 function drawSnapSettingsPanel() {
   clearPanel();
@@ -659,6 +724,7 @@ function redrawPanel() {
   if (!panelReady) return;
   if (keyboardOpen) drawKeyboardPanel();
   else if (snapValueKeyboardOpen) drawSnapValueKeyboard();
+  else if (itemCatalogOpen) drawItemCatalogPanel();
   else if (snapSettingsOpen) drawSnapSettingsPanel();
   else drawMainPanel();
 }
@@ -925,8 +991,24 @@ function syncMesh(node) {
   node.mesh.scale.setScalar(Math.max(0.01, 1 + Number(node.item.scaleModifier || 0) / 128));
   if (node === selected) updateTransformGizmo();
 }
+function makeItemPreviewGeometry(id) {
+  const category = ITEM_CATALOG_BY_ID.get(id)?.category || "Loot";
+  // These are category-based preview shapes, not ripped game meshes. They make
+  // different item families easier to distinguish while keeping the exported
+  // itemID exact for the target editor/game format.
+  if (category === "Toys") return new THREE.IcosahedronGeometry(0.18, 1);
+  if (category === "Construction") return new THREE.BoxGeometry(0.34, 0.23, 0.34);
+  if (category === "Bags & Gadgets") return new THREE.BoxGeometry(0.24, 0.34, 0.17);
+  if (category === "Fishing") {
+    const geometry = new THREE.SphereGeometry(0.19, 18, 12);
+    geometry.scale(1.28, 0.68, 0.68);
+    return geometry;
+  }
+  if (category === "Consumables") return new THREE.CylinderGeometry(0.115, 0.13, 0.30, 20);
+  return new THREE.DodecahedronGeometry(0.18, 0);
+}
 function makeVisual(node) {
-  const geo = new THREE.BoxGeometry(0.28, 0.28, 0.28);
+  const geo = makeItemPreviewGeometry(node.item.itemID);
   const mat = new THREE.MeshBasicMaterial({ color: colorFor(node.item.itemID) });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.userData.node = node;
@@ -934,11 +1016,12 @@ function makeVisual(node) {
   mesh.receiveShadow = true;
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x10202b }));
   mesh.add(edges);
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeCanvasTexture(node.item.itemID.replace(/^item_/, ""), { width: 512, height: 96, fontSize: 48 }), transparent: false }));
-  sprite.scale.set(0.9, 0.17, 1);
-  sprite.position.y = 0.25;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeCanvasTexture(getItemDisplayName(node.item.itemID), { width: 512, height: 96, fontSize: 38 }), transparent: false }));
+  sprite.scale.set(0.98, 0.18, 1);
+  sprite.position.y = 0.27;
   mesh.add(sprite);
   node.mesh = mesh;
+  node.edgeMesh = edges;
   node.labelSprite = sprite;
   nodeGroup(node).add(node.group);
   node.group.add(mesh);
@@ -961,8 +1044,16 @@ function refreshNodeID(node, id) {
   node.item.itemID = id;
   node.group.name = id;
   node.mesh.material.color.copy(colorFor(id));
+  const oldGeometry = node.mesh.geometry;
+  node.mesh.geometry = makeItemPreviewGeometry(id);
+  oldGeometry?.dispose();
+  if (node.edgeMesh) {
+    const oldEdgeGeometry = node.edgeMesh.geometry;
+    node.edgeMesh.geometry = new THREE.EdgesGeometry(node.mesh.geometry);
+    oldEdgeGeometry?.dispose();
+  }
   const oldMap = node.labelSprite.material.map;
-  node.labelSprite.material.map = makeCanvasTexture(id.replace(/^item_/, ""), { width: 512, height: 96, fontSize: 48 });
+  node.labelSprite.material.map = makeCanvasTexture(getItemDisplayName(id), { width: 512, height: 96, fontSize: 38 });
   oldMap?.dispose();
 }
 function serializeNode(node) {
@@ -989,6 +1080,8 @@ function disposeBuild() {
   for (const n of nodes) {
     n.mesh?.geometry?.dispose();
     n.mesh?.material?.dispose();
+    n.edgeMesh?.geometry?.dispose();
+    n.edgeMesh?.material?.dispose();
     if (n.labelSprite?.material?.map) n.labelSprite.material.map.dispose();
     n.labelSprite?.material?.dispose();
   }
@@ -1039,9 +1132,11 @@ function importBuild(raw) {
   choose(first);
   setStatus("Imported. Select an item to keep editing in VR.");
 }
-function openIDKeyboard() {
-  keyboardDraft = selected?.item.itemID || pendingItemID || "item_crate";
+function openIDKeyboard(target = "selected") {
+  keyboardTarget = target;
+  keyboardDraft = target === "pending" ? (pendingItemID || "item_crate") : (selected?.item.itemID || pendingItemID || "item_crate");
   if (!keyboardDraft.startsWith("item_")) keyboardDraft = "item_" + keyboardDraft;
+  itemCatalogOpen = false;
   keyboardOpen = true;
   redrawPanel();
 }
@@ -1057,9 +1152,15 @@ function handleKeyboardAction(action) {
     keyboardOpen = false;
   } else if (action === "keyDone") {
     if (!validItemID(keyboardDraft)) { setStatus("Use letters, numbers, _ or - after item_."); return; }
+    if (UNSUPPORTED_ITEM_ID_PATTERN.test(keyboardDraft)) {
+      setStatus("That ID is not available in this builder's item catalog.");
+      redrawPanel();
+      return;
+    }
     pendingItemID = keyboardDraft;
-    if (selected) refreshNodeID(selected, keyboardDraft);
+    if (keyboardTarget === "selected" && selected) refreshNodeID(selected, keyboardDraft);
     keyboardOpen = false;
+    keyboardTarget = "selected";
     setStatus(`Item ID set to ${keyboardDraft}.`);
   }
   redrawPanel();
@@ -1127,7 +1228,48 @@ function runAction(action) {
     setStatus("Sound test: hover, click, snap-out, snap-in.");
     return;
   }
+  if (action === "openItemCatalog") {
+    openItemCatalog();
+    return;
+  }
+  if (action === "catalogCategoryPrev" || action === "catalogCategoryNext") {
+    const direction = action.endsWith("Prev") ? -1 : 1;
+    itemCatalogCategoryIndex = (itemCatalogCategoryIndex + direction + ITEM_CATEGORIES.length) % ITEM_CATEGORIES.length;
+    itemCatalogPage = 0;
+    redrawPanel();
+    return;
+  }
+  if (action === "catalogPagePrev" || action === "catalogPageNext") {
+    const entries = getCatalogCategoryItems();
+    const pageCount = Math.max(1, Math.ceil(entries.length / ITEM_PAGE_SIZE));
+    const direction = action.endsWith("Prev") ? -1 : 1;
+    itemCatalogPage = THREE.MathUtils.clamp(itemCatalogPage + direction, 0, pageCount - 1);
+    redrawPanel();
+    return;
+  }
+  if (action.startsWith("catalogPick:")) {
+    const id = action.slice("catalogPick:".length);
+    const entry = ITEM_CATALOG_BY_ID.get(id);
+    if (!entry) {
+      setStatus("That item is not in the supported item catalog.");
+      return;
+    }
+    pendingItemID = entry.id;
+    itemCatalogOpen = false;
+    setStatus(`Next item: ${entry.name}. Use NEW ROOT or ADD PART to place it.`);
+    return;
+  }
+  if (action === "catalogCustomID") {
+    openIDKeyboard("pending");
+    return;
+  }
+  if (action === "catalogBack") {
+    itemCatalogOpen = false;
+    redrawPanel();
+    return;
+  }
   if (action === "snapSettings") {
+    itemCatalogOpen = false;
     snapSettingsOpen = true;
     redrawPanel();
     return;

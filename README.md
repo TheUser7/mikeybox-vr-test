@@ -43,7 +43,7 @@ Position and rotation snapping remain independently configurable in the left-han
 
 ## Limitations
 
-This is an alpha prototype. It uses placeholder cubes rather than Animal Company models, and item IDs are entered manually. Exports have not been verified in the live game. WebXR requires HTTPS. I have run local syntax and package checks, but physical Quest 3 testing is still required. Two-hand scaling now refreshes WebXR controller sources every frame and polls the XR-standard squeeze button as a fallback to controller squeeze events; this is intended to make the scale gesture more reliable across Quest Browser versions.
+This is an alpha prototype. It includes a browsable item catalog and category-based preview geometry, but it does not contain the original Animal Company models. Exports have not been verified in the live game. WebXR requires HTTPS. I have run local syntax and package checks, but physical Quest 3 testing is still required. Two-hand scaling now refreshes WebXR controller sources every frame and polls the XR-standard squeeze button as a fallback to controller squeeze events; this is intended to make the scale gesture more reliable across Quest Browser versions.
 
 
 ## Wrist menu visibility and viewing angle
@@ -98,4 +98,11 @@ The source passed a JavaScript syntax check and the ZIP package passed integrity
 
 ## Site version identification
 
-The landing page displays a prominent site-version badge: **ALPHA v0.8.0 · BUILD 2026.10.31-r1**. The same version and build ID are printed in the footer of every in-VR menu page, so the deployed Quest site can be identified without checking the ZIP filename. When publishing a later build, update `SITE_VERSION`, `SITE_BUILD_ID` in `app.js`, and the matching badge/title in `index.html`.
+The landing page displays a prominent site-version badge: **ALPHA v0.9.0 · BUILD 2026.10.31-r2**. The same version and build ID are printed in the footer of every in-VR menu page, so the deployed Quest site can be identified without checking the ZIP filename. When publishing a later build, update `SITE_VERSION`, `SITE_BUILD_ID` in `app.js`, and the matching badge/title in `index.html`.
+
+
+## Item catalog (v0.9.0)
+
+The in-VR main menu has an **ITEMS** button. It opens a built-in catalog with category browsing and pages. Choose an item to set it as the next item, then use **NEW ROOT** or **ADD PART** to place it. Categories currently include Loot, Toys, Construction, Bags & Gadgets, Fishing and Consumables. The catalog contains 388 selectable entries across six non-weapon categories. A **CUSTOM ID** option remains available for manually entered item IDs.
+
+The catalog changes the item ID written into the exported invention JSON and displays the selected item name on its preview. Preview geometry varies by category (for example: toy polyhedra, construction blocks, bag-shaped blocks, fish-like ellipsoids and consumable cylinders). These are original category-based placeholders, not the original Animal Company 3D model meshes; the genuine models are not included until authorized model assets are supplied.
