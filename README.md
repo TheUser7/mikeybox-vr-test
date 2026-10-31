@@ -98,7 +98,7 @@ The source passed a JavaScript syntax check and the ZIP package passed integrity
 
 ## Site version identification
 
-The landing page displays a prominent site-version badge: **ALPHA v0.9.0 · BUILD 2026.10.31-r2**. The same version and build ID are printed in the footer of every in-VR menu page, so the deployed Quest site can be identified without checking the ZIP filename. When publishing a later build, update `SITE_VERSION`, `SITE_BUILD_ID` in `app.js`, and the matching badge/title in `index.html`.
+The landing page displays a prominent site-version badge: **ALPHA v0.9.1 · BUILD 2026.10.31-r3**. The same version and build ID are printed in the footer of every in-VR menu page, so the deployed Quest site can be identified without checking the ZIP filename. When publishing a later build, update `SITE_VERSION`, `SITE_BUILD_ID` in `app.js`, and the matching badge/title in `index.html`.
 
 
 ## Item catalog (v0.9.0)
@@ -106,3 +106,8 @@ The landing page displays a prominent site-version badge: **ALPHA v0.9.0 · BUIL
 The in-VR main menu has an **ITEMS** button. It opens a built-in catalog with category browsing and pages. Choose an item to set it as the next item, then use **NEW ROOT** or **ADD PART** to place it. Categories currently include Loot, Toys, Construction, Bags & Gadgets, Fishing and Consumables. The catalog contains 388 selectable entries across six non-weapon categories. A **CUSTOM ID** option remains available for manually entered item IDs.
 
 The catalog changes the item ID written into the exported invention JSON and displays the selected item name on its preview. Preview geometry varies by category (for example: toy polyhedra, construction blocks, bag-shaped blocks, fish-like ellipsoids and consumable cylinders). These are original category-based placeholders, not the original Animal Company 3D model meshes; the genuine models are not included until authorized model assets are supplied.
+
+
+## Larger in-VR menu text (v0.9.1)
+
+Menu headings, status labels, instruction text, version labels, and button labels are rendered larger for easier reading in Quest Browser. Panel text is scaled to 128% and button text to 122% of the previous size. Long labels gently reduce their font size only as needed to fit instead of being clipped immediately.
