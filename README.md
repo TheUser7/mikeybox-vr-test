@@ -1,25 +1,36 @@
-# Goop VR Builder — Quest 3 prototype
+# Goop VR Builder — immersive editor alpha
 
-This is a small standalone WebXR prototype. It does not load the original Mikeybox website or its private server files.
+A small browser-based WebXR prototype intended for Meta Quest Browser. **All build editing happens inside the immersive VR session.** The normal webpage only has an Enter VR button and setup instructions.
 
-## Open it on Quest 3
+## Publish with GitHub Pages
 
-1. Upload the contents of this folder to a static HTTPS host you control (for example, a GitHub Pages repository).
-2. Open the HTTPS page in Quest Browser.
-3. Press **Enter VR** and allow the browser's VR prompt.
-4. Create a root using an `item_...` ID. Select it, then use **Add part** to attach children.
-5. Select blocks with a controller trigger. Use the web panel to change the selected item's ID, position, or scale modifier.
-6. Export JSON when finished.
+1. Create a GitHub repository.
+2. Upload the contents of this folder (`index.html`, `style.css`, `app.js`) to the repository root.
+3. Open **Settings → Pages**.
+4. Select **Deploy from a branch**, choose `main` and `/(root)`, then save.
+5. Open the generated `https://YOUR-USERNAME.github.io/REPOSITORY/` address in Quest Browser.
+6. Press **Enter Immersive VR** and allow the VR session.
 
-## Current prototype limits
+## VR controls
 
-- The 3D blocks are placeholders, not the game's actual item meshes.
-- Item IDs are entered manually; this build does not include the game's item catalog.
-- The JSON uses the editor's native invention object shape (`itemID`, item fields, `children`, and recursive `stuckChildren` edges).
-- Newly authored child edges use `subParentID: 0`, zero grab-pose offsets, and the displayed position/quaternion as the edge pose. Some prefabs use special attachment frames or grab poses, so those builds need validation in the real editor before relying on them in-game.
-- No promise is made that every generated build will pass the game's own rules. Test with a simple harmless build first.
-- This prototype supports one root invention per file. It does not implement all editor features, inventory/container contents, validation, undo, or Workshop.
+- **Trigger on a menu button:** activate it.
+- **Trigger on a block:** select that item.
+- **Hold grip near the selected block:** grab it. Move and rotate your controller to move and rotate the block; release grip to place it.
+- **New Root / Add Part / Delete:** manage the build hierarchy.
+- **Edit ID:** opens an in-world keyboard. It automatically adds the `item_` prefix.
+- **Move buttons:** nudge the selected item by 5 cm along its parent-local X/Y/Z axes.
+- **Rotate buttons:** rotate the selected item by 15 degrees around its parent-local X/Y/Z axes.
+- **Scale buttons:** change its `scaleModifier` by one.
+- **Export:** requests a JSON download from Quest Browser.
+- **Import:** opens the browser's file picker for an existing invention JSON file.
+- **Re-center Menu:** puts the floating control panel in front of the headset's current view.
 
-## Hosting
+## Current alpha limitations
 
-Serve this folder from an HTTPS static host. WebXR immersive sessions generally require a secure context. The CDN import requires internet access when the page loads.
+- Blocks are placeholder cubes with the item ID displayed above them. Real game models and the game's item catalog are not included.
+- Item IDs are entered manually; this prototype does not verify that an ID exists in the game.
+- Exact prefab attachment frames, grab poses, special item behavior, and full game-side validation are not implemented.
+- Import/export follows the native-style structure used by the prototype source analysis, but files have not been verified against every version of the original editor or game. Keep backups of inventions.
+- Quest Browser behavior for file-picker import and download prompts can vary. The headset/browser may show a system file dialog or download notification outside the 3D scene.
+
+Use only model assets and game data you have permission to use. This project is an independent prototype and is not affiliated with the game or the original editor.
