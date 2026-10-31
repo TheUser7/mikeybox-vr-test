@@ -4,15 +4,20 @@ const $ = (id) => document.getElementById(id);
 const scene = new THREE.Scene();
 const worldGroup = new THREE.Group();
 scene.add(worldGroup);
+// Everything that represents the environment lives under worldGroup, so
+// player-scale gestures enlarge/shrink the floor, sky, measured grid and walls
+// together with the build instead of leaving a fixed-looking backdrop.
+const environmentGroup = new THREE.Group();
+worldGroup.add(environmentGroup);
 scene.background = new THREE.Color(0x9bb3c2);
 // A real sky mesh is more reliable than scene.background in immersive WebXR.
-// Some headset/browser combinations clear the XR framebuffer to black instead.
+// The distant environment grids below provide visible scale references against it.
 const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(60, 32, 20),
+  new THREE.SphereGeometry(72, 40, 28),
   new THREE.MeshBasicMaterial({ color: 0x91b6cc, side: THREE.BackSide, depthWrite: false })
 );
 sky.renderOrder = -100;
-worldGroup.add(sky);
+environmentGroup.add(sky);
 
 const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.01, 100);
 camera.position.set(0, 1.65, 2.4);
@@ -31,15 +36,66 @@ const sun = new THREE.DirectionalLight(0xffffff, 2.0);
 sun.position.set(4, 8, 5);
 worldGroup.add(sun);
 const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(50, 50),
+  new THREE.PlaneGeometry(100, 100),
   new THREE.MeshBasicMaterial({ color: 0x657a83 })
 );
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.03;
-worldGroup.add(floor);
-const grid = new THREE.GridHelper(24, 48, 0x526a73, 0x71858c);
+environmentGroup.add(floor);
+// A larger half-meter floor grid makes changes in world scale easy to see.
+const grid = new THREE.GridHelper(48, 96, 0x526a73, 0x71858c);
 grid.position.y = -0.015;
-worldGroup.add(grid);
+environmentGroup.add(grid);
+
+// Four floor rings and distant vertical measurement grids make the size of
+// the workspace legible even when the user has scaled far from 1:1.
+for (const radius of [3, 6, 9, 12, 16]) {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(radius - 0.018, radius + 0.018, 128),
+    new THREE.MeshBasicMaterial({ color: radius % 6 === 0 ? 0x9bd6cb : 0x7895a0, transparent: true, opacity: 0.48, side: THREE.DoubleSide, depthWrite: false })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = -0.008;
+  environmentGroup.add(ring);
+}
+function makeBackdropGrid(width, height, spacing = 1, majorEvery = 5) {
+  const group = new THREE.Group();
+  const minorPoints = [];
+  const majorPoints = [];
+  const addLine = (target, x1, y1, x2, y2) => {
+    target.push(new THREE.Vector3(x1, y1, 0), new THREE.Vector3(x2, y2, 0));
+  };
+  const epsilon = 1e-5;
+  for (let x = -width / 2; x <= width / 2 + epsilon; x += spacing) {
+    const target = Math.abs(x / majorEvery - Math.round(x / majorEvery)) < epsilon ? majorPoints : minorPoints;
+    addLine(target, x, -height / 2, x, height / 2);
+  }
+  for (let y = -height / 2; y <= height / 2 + epsilon; y += spacing) {
+    const target = Math.abs(y / majorEvery - Math.round(y / majorEvery)) < epsilon ? majorPoints : minorPoints;
+    addLine(target, -width / 2, y, width / 2, y);
+  }
+  const minorGeometry = new THREE.BufferGeometry().setFromPoints(minorPoints);
+  const majorGeometry = new THREE.BufferGeometry().setFromPoints(majorPoints);
+  group.add(new THREE.LineSegments(minorGeometry, new THREE.LineBasicMaterial({ color: 0x526d79, transparent: true, opacity: 0.24, depthWrite: false })));
+  group.add(new THREE.LineSegments(majorGeometry, new THREE.LineBasicMaterial({ color: 0x9bc3c9, transparent: true, opacity: 0.48, depthWrite: false })));
+  const frame = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.PlaneGeometry(width, height)),
+    new THREE.LineBasicMaterial({ color: 0xb5d8d8, transparent: true, opacity: 0.64, depthWrite: false })
+  );
+  group.add(frame);
+  return group;
+}
+const backGrid = makeBackdropGrid(40, 16, 1, 5);
+backGrid.position.set(0, 8, -18);
+environmentGroup.add(backGrid);
+const leftGrid = makeBackdropGrid(40, 16, 1, 5);
+leftGrid.rotation.y = Math.PI / 2;
+leftGrid.position.set(-18, 8, 0);
+environmentGroup.add(leftGrid);
+const rightGrid = makeBackdropGrid(40, 16, 1, 5);
+rightGrid.rotation.y = -Math.PI / 2;
+rightGrid.position.set(18, 8, 0);
+environmentGroup.add(rightGrid);
 
 const rootGroup = new THREE.Group();
 worldGroup.add(rootGroup);
@@ -102,6 +158,76 @@ const tempMatrix2 = new THREE.Matrix4();
 const tempVector = new THREE.Vector3();
 const tempQuaternion = new THREE.Quaternion();
 const tempScale = new THREE.Vector3();
+
+// Camera-facing feedback makes the two-hand scale gesture obvious. The HUD is
+// outside worldGroup, so it remains a stable size while the environment scales.
+const scaleFeedbackCanvas = document.createElement("canvas");
+scaleFeedbackCanvas.width = 768;
+scaleFeedbackCanvas.height = 192;
+const scaleFeedbackContext = scaleFeedbackCanvas.getContext("2d");
+const scaleFeedbackTexture = new THREE.CanvasTexture(scaleFeedbackCanvas);
+scaleFeedbackTexture.colorSpace = THREE.SRGBColorSpace;
+const scaleFeedback = new THREE.Group();
+const scaleFeedbackPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.92, 0.23),
+  new THREE.MeshBasicMaterial({ map: scaleFeedbackTexture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false })
+);
+scaleFeedbackPanel.renderOrder = 1000;
+scaleFeedback.add(scaleFeedbackPanel);
+scaleFeedback.renderOrder = 1000;
+scaleFeedback.visible = false;
+scene.add(scaleFeedback);
+let scaleFeedbackUntil = 0;
+let lastScaleFeedbackKey = "";
+function drawScaleFeedback(kind, value, active = true) {
+  const safeValue = THREE.MathUtils.clamp(Number(value) || 1, 0.01, 100);
+  const key = `${kind}:${safeValue.toFixed(3)}:${active ? "active" : "done"}`;
+  if (key !== lastScaleFeedbackKey) {
+    lastScaleFeedbackKey = key;
+    const ctx = scaleFeedbackContext;
+    ctx.clearRect(0, 0, 768, 192);
+    ctx.fillStyle = "rgba(8, 20, 29, 0.94)";
+    ctx.fillRect(4, 4, 760, 184);
+    ctx.strokeStyle = kind === "WORLD" ? "#75dcc8" : "#a8c9ff";
+    ctx.lineWidth = 7;
+    ctx.strokeRect(7, 7, 754, 178);
+    ctx.fillStyle = "#f5fbff";
+    ctx.font = "bold 42px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(kind === "WORLD" ? "WORLD + BACKGROUND SCALE" : "HELD ITEM SCALE", 34, 66);
+    ctx.textAlign = "right";
+    ctx.font = "bold 54px system-ui, sans-serif";
+    ctx.fillText(`${safeValue.toFixed(2)}×`, 730, 70);
+    ctx.fillStyle = "rgba(210, 229, 237, 0.22)";
+    ctx.fillRect(34, 112, 696, 30);
+    const normalized = THREE.MathUtils.clamp((Math.log(safeValue / 0.25) / Math.log(4 / 0.25)), 0, 1);
+    ctx.fillStyle = kind === "WORLD" ? "#75dcc8" : "#a8c9ff";
+    ctx.fillRect(34, 112, Math.max(10, 696 * normalized), 30);
+    ctx.fillStyle = "#bfd0d9";
+    ctx.textAlign = "left";
+    ctx.font = "24px system-ui, sans-serif";
+    ctx.fillText(active ? "PULL APART TO GROW  ·  BRING TOGETHER TO SHRINK" : "SCALE SET  ·  RELEASE BOTH GRIPS", 34, 169);
+    scaleFeedbackTexture.needsUpdate = true;
+  }
+  scaleFeedback.visible = true;
+  scaleFeedbackUntil = performance.now() + (active ? 700 : 1500);
+}
+function updateScaleFeedbackPose() {
+  if (!scaleFeedback.visible) return;
+  if (!renderer.xr.isPresenting) {
+    scaleFeedback.visible = false;
+    return;
+  }
+  if (!twoHandScaleState && performance.now() > scaleFeedbackUntil) {
+    scaleFeedback.visible = false;
+    return;
+  }
+  const xrCamera = renderer.xr.getCamera(camera);
+  const forward = xrCamera.getWorldDirection(new THREE.Vector3());
+  const viewerPosition = xrCamera.getWorldPosition(new THREE.Vector3());
+  scaleFeedback.position.copy(viewerPosition).addScaledVector(forward, 1.05).add(new THREE.Vector3(0, -0.22, 0));
+  scaleFeedback.quaternion.copy(xrCamera.getWorldQuaternion(new THREE.Quaternion()));
+}
 
 const panel = new THREE.Group();
 panel.visible = false;
@@ -433,7 +559,7 @@ function drawMainPanel() {
   addPanelText("DOUBLE ARROWS · PUSH / PULL X Y Z", 0, -0.20, 1.50, 0.09, 22, "#ffcf8a");
   addPanelText("CIRCLES · TURN ROTATION X Y Z", 0, -0.34, 1.50, 0.09, 22, "#a9c2cf");
   addPanelText("HOLD ITEM + BOTH GRIPS · SCALE ITEM", 0, -0.48, 1.55, 0.07, 17, "#a9c2cf");
-  addPanelText("EMPTY HANDS + BOTH GRIPS · SCALE WORLD", 0, -0.56, 1.55, 0.07, 16, "#a9c2cf");
+  addPanelText("EMPTY HANDS + BOTH GRIPS · SCALE WORLD + BACKDROP", 0, -0.56, 1.58, 0.07, 15, "#a9c2cf");
   addButton("SCALE −", "scale:-1", -0.38, -0.68, 0.48, 0.15);
   addButton("SCALE +", "scale:1", 0.15, -0.68, 0.48, 0.15);
   addButton("SNAP SETTINGS", "snapSettings", 0, -0.87, 0.92, 0.11, "active");
@@ -1356,14 +1482,19 @@ function tryBeginTwoHandScale() {
       pivotWorld,
       pivotLocal
     };
-    setStatus("WORLD SCALE ACTIVE · Pull both grips apart to grow the workspace; bring them together to shrink it.");
+    setStatus("WORLD SCALE ACTIVE · Floor grid, rings and background walls scale with the workspace.");
+    drawScaleFeedback("WORLD", worldGroup.scale.x, true);
   }
   return true;
 }
 function finishTwoHandScale() {
   if (!twoHandScaleState) return;
   const finishedKind = twoHandScaleState.kind;
+  const finishedScale = finishedKind === "item"
+    ? Math.max(1 / 128, 1 + Number(twoHandScaleState.node?.item?.scaleModifier || 0) / 128)
+    : Math.max(0.01, Math.abs(worldGroup.scale.x));
   twoHandScaleState = null;
+  drawScaleFeedback(finishedKind === "item" ? "ITEM" : "WORLD", finishedScale, false);
   scaleGestureNeedsRelease = true;
   for (const record of controllerRecords) dragStates.delete(record.controller);
   setStatus(finishedKind === "item"
@@ -1412,6 +1543,7 @@ function updateTwoHandScale() {
     const desiredWorldScale = THREE.MathUtils.clamp(state.startWorldScale * scaleFactor, 0.25, 4.0);
     if (Math.abs(desiredWorldScale - worldGroup.scale.x) > 0.0005) {
       applyWorkspaceScaleAroundViewer(desiredWorldScale, state.pivotWorld, state.pivotLocal);
+      drawScaleFeedback("WORLD", desiredWorldScale, true);
       updateTransformGizmo();
     }
     return true;
@@ -1419,6 +1551,7 @@ function updateTwoHandScale() {
 
   if (!nodes.includes(state.node)) return false;
   const desiredScale = THREE.MathUtils.clamp(state.startScale * scaleFactor, 1 / 128, 255 / 128);
+  drawScaleFeedback("ITEM", desiredScale, true);
   const modifier = THREE.MathUtils.clamp(Math.round((desiredScale - 1) * 128), -127, 127);
   if (modifier !== Number(state.node.item.scaleModifier || 0)) {
     state.node.item.scaleModifier = modifier;
@@ -1939,6 +2072,7 @@ $("enterVR").addEventListener("click", async () => {
       snapSettingsOpen = false;
       snapValueKeyboardOpen = false;
       transformGizmo.visible = false;
+      scaleFeedback.visible = false;
       joystickState.turnArmed = true;
       twoHandScaleState = null;
       for (const record of controllerRecords) record.squeezePressed = false;
@@ -2006,6 +2140,9 @@ renderer.setAnimationLoop((time, xrFrame) => {
   if (renderer.xr.isPresenting) {
     updateJoystickMovement(deltaSeconds);
     updateTransformGizmo();
+    updateScaleFeedbackPose();
+  } else {
+    scaleFeedback.visible = false;
   }
   renderer.render(scene, camera);
 });
