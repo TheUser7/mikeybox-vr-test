@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.01-r16";
+const SITE_BUILD_ID = "2026.11.01-r17";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -560,8 +560,7 @@ const rootGroup = new THREE.Group();
 worldGroup.add(rootGroup);
 let nodes = [];
 let selected = null;
-let clipboardSnapshot = null;
-let clipboardParentUid = null;
+
 const undoHistory = [];
 const redoHistory = [];
 const HISTORY_LIMIT = 60;
@@ -2024,40 +2023,34 @@ function snapshotNodeTree(node) {
 function countSnapshotNodes(snapshot) {
   return 1 + snapshot.children.reduce((total, child) => total + countSnapshotNodes(child), 0);
 }
-function copySelectedSubtree() {
-  if (!selected || !nodes.includes(selected)) {
-    setStatus("Select an item first, then hold A + Grip to copy it.");
-    return;
+function duplicateNodeSubtreeForGrab(source, rayController, grip) {
+  if (!source || !nodes.includes(source)) {
+    setStatus("Move your controller close to an item, then hold A + Grip to grab a copy.");
+    return false;
   }
-  clipboardSnapshot = snapshotNodeTree(selected);
-  clipboardParentUid = selected.parent?.uid ?? null;
-  setStatus(`Copied ${selected.item.itemID} and ${countSnapshotNodes(clipboardSnapshot) - 1} attached child item(s). Hold A + Trigger to paste.`);
-}
-function pasteCopiedSubtree() {
-  if (!clipboardSnapshot) {
-    setStatus("Nothing copied yet. Select an item and hold A + Grip first.");
-    return;
-  }
+  const snapshot = snapshotNodeTree(source);
   pushUndoState();
-  const originalParent = clipboardParentUid == null ? null : (nodes.find((node) => node.uid === clipboardParentUid) || null);
-  function createFromSnapshot(snapshot, parent, isRoot = false) {
-    const position = snapshot.position.slice();
-    if (isRoot) position[0] += 0.35;
-    const node = createNode(structuredClone(snapshot.item), parent, position);
-    node.position.fromArray(position);
-    node.quaternion.fromArray(snapshot.quaternion);
-    node.edgePose = structuredClone(snapshot.edgePose || {});
-    if (snapshot.sourceSpecialEdge) node.sourceSpecialEdge = structuredClone(snapshot.sourceSpecialEdge);
-    if (snapshot.sourceSpecialSnapshot) node.sourceSpecialSnapshot = structuredClone(snapshot.sourceSpecialSnapshot);
+  function createFromSnapshot(record, parent) {
+    const node = createNode(structuredClone(record.item), parent, record.position);
+    node.position.fromArray(record.position);
+    node.quaternion.fromArray(record.quaternion);
+    node.edgePose = structuredClone(record.edgePose || {});
+    if (record.sourceSpecialEdge) node.sourceSpecialEdge = structuredClone(record.sourceSpecialEdge);
+    if (record.sourceSpecialSnapshot) node.sourceSpecialSnapshot = structuredClone(record.sourceSpecialSnapshot);
     node.group.position.copy(node.position);
     node.group.quaternion.copy(node.quaternion);
     syncMesh(node);
-    for (const child of snapshot.children) createFromSnapshot(child, node, false);
+    for (const child of record.children) createFromSnapshot(child, node);
     return node;
   }
-  const pastedRoot = createFromSnapshot(clipboardSnapshot, originalParent, true);
-  choose(pastedRoot);
-  setStatus(`Pasted ${countSnapshotNodes(clipboardSnapshot)} item(s), including all attached children. Grab the copy to move it.`);
+  const copy = createFromSnapshot(snapshot, source.parent || null);
+  grip.updateMatrixWorld(true);
+  copy.group.updateMatrixWorld(true);
+  const offset = grip.matrixWorld.clone().invert().multiply(copy.group.matrixWorld);
+  dragStates.set(rayController, { mode: "object", node: copy, grip, offset, lockedLocalQuaternion: null });
+  choose(copy);
+  setStatus(`Holding a copy of ${source.item.itemID} with ${countSnapshotNodes(snapshot) - 1} attached child item(s). The original stays in place.`);
+  return true;
 }
 function choose(node) {
   selected = node;
@@ -2590,11 +2583,6 @@ function pickGizmoHandle(controller) {
   return hits.length ? hits[0] : null;
 }
 function onTrigger(controller) {
-  const rightRecord = controllerRecords.find((record) => record.controller === controller && record.handedness === "right");
-  if (rightRecord && isCopyModifierHeld(rightRecord)) {
-    pasteCopiedSubtree();
-    return;
-  }
   getControllerRay(controller);
   const buttonHits = raycaster.intersectObjects(visibleMenuPickTargets(), false);
   if (buttonHits.length) {
@@ -3054,8 +3042,10 @@ function setupController(index) {
   controller.addEventListener("selectstart", () => onTrigger(controller));
   controller.addEventListener("squeezestart", () => {
     record.squeezePressed = true;
-    if (isCopyModifierHeld(record)) {
-      if (record.handedness === "right") copySelectedSubtree();
+    if (isCopyModifierHeld(record) && record.handedness === "right") {
+      const target = nearestNodeToHand(grip, gizmoEnabled ? 0.48 : 0.68)
+        || (selected && nodeGrabSurfaceDistance(selected, new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld)) < (gizmoEnabled ? 0.60 : 0.82) ? selected : null);
+      duplicateNodeSubtreeForGrab(target, controller, grip);
       return;
     }
     if (tryBeginTwoHandScale()) return;
