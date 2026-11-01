@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "ALPHA v0.9.9";
-const SITE_BUILD_ID = "2026.10.31-r11";
+const SITE_BUILD_ID = "2026.11.01-r12";
 const UI_PANEL_FONT_SCALE = 1.28;
 const UI_BUTTON_FONT_SCALE = 1.22;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -560,6 +560,9 @@ const rootGroup = new THREE.Group();
 worldGroup.add(rootGroup);
 let nodes = [];
 let selected = null;
+const undoHistory = [];
+const redoHistory = [];
+const HISTORY_LIMIT = 60;
 // Right-controller B toggles the transform gizmo without changing selection.
 let gizmoEnabled = true;
 let rightBWasPressed = false;
@@ -1062,8 +1065,10 @@ function drawMainPanel() {
     addPanelText("PULL APART / PUSH TOGETHER TO RESIZE", 0, -0.51, 1.55, 0.08, 19, "#a9c2cf");
     addPanelText("PLAYER SCALING + GIZMO HANDLES DISABLED", 0, -0.65, 1.58, 0.07, 15, "#dfb18b");
   }
-  addButton("HIERARCHY", "openHierarchy", -0.43, -0.86, 0.68, 0.11, "active");
-  addButton("SNAP SETTINGS", "snapSettings", 0.43, -0.86, 0.68, 0.11, "active");
+  addButton("HIERARCHY", "openHierarchy", -0.43, -0.73, 0.68, 0.11, "active");
+  addButton("SNAP SETTINGS", "snapSettings", 0.43, -0.73, 0.68, 0.11, "active");
+  addButton("UNDO", "undo", -0.43, -0.92, 0.48, 0.11, undoHistory.length ? "good" : "muted");
+  addButton("REDO", "redo", 0.43, -0.92, 0.48, 0.11, redoHistory.length ? "good" : "muted");
 }
 function getItemDisplayName(id) {
   return ITEM_CATALOG_BY_ID.get(id)?.name || String(id || "Unknown item").replace(/^item_/, "").replace(/_/g, " ");
@@ -1937,6 +1942,70 @@ function disposeBuild() {
   transformGizmo.visible = false;
   nextId = 1;
 }
+function captureHistoryState() {
+  return {
+    nodes: nodes.map((node) => {
+      const item = structuredClone(node.item);
+      item.children = [];
+      item.stuckChildren = [];
+      return {
+        uid: node.uid, parentUid: node.parent?.uid ?? null, item,
+        position: node.position.toArray(), quaternion: node.quaternion.toArray(),
+        edgePose: structuredClone(node.edgePose || {}),
+        sourceSpecialEdge: node.sourceSpecialEdge ? structuredClone(node.sourceSpecialEdge) : null,
+        sourceSpecialSnapshot: node.sourceSpecialSnapshot ? structuredClone(node.sourceSpecialSnapshot) : null
+      };
+    }),
+    selectedUid: selected?.uid ?? null, pendingItemID,
+    worldPosition: worldGroup.position.toArray(),
+    worldQuaternion: worldGroup.quaternion.toArray(), worldScale: worldGroup.scale.toArray()
+  };
+}
+function restoreHistoryState(snapshot) {
+  disposeBuild();
+  const restored = new Map();
+  for (const record of snapshot.nodes) {
+    const parent = record.parentUid == null ? null : restored.get(record.parentUid);
+    const node = createNode(structuredClone(record.item), parent, record.position);
+    node.uid = record.uid;
+    node.position.fromArray(record.position);
+    node.quaternion.fromArray(record.quaternion);
+    node.edgePose = structuredClone(record.edgePose || {});
+    if (record.sourceSpecialEdge) node.sourceSpecialEdge = structuredClone(record.sourceSpecialEdge);
+    if (record.sourceSpecialSnapshot) node.sourceSpecialSnapshot = structuredClone(record.sourceSpecialSnapshot);
+    node.group.position.copy(node.position);
+    node.group.quaternion.copy(node.quaternion);
+    syncMesh(node);
+    restored.set(record.uid, node);
+  }
+  nextId = Math.max(0, ...snapshot.nodes.map((record) => record.uid)) + 1;
+  selected = restored.get(snapshot.selectedUid) || null;
+  pendingItemID = snapshot.pendingItemID || "item_crate";
+  worldGroup.position.fromArray(snapshot.worldPosition);
+  worldGroup.quaternion.fromArray(snapshot.worldQuaternion);
+  worldGroup.scale.fromArray(snapshot.worldScale);
+  worldGroup.updateMatrixWorld(true);
+  updateTransformGizmo();
+  redrawPanel();
+}
+function pushUndoState() {
+  undoHistory.push(captureHistoryState());
+  if (undoHistory.length > HISTORY_LIMIT) undoHistory.shift();
+  redoHistory.length = 0;
+  if (panelReady) redrawPanel();
+}
+function undoEdit() {
+  if (!undoHistory.length) { setStatus("Nothing to undo yet."); return; }
+  redoHistory.push(captureHistoryState());
+  restoreHistoryState(undoHistory.pop());
+  setStatus("Undo complete.");
+}
+function redoEdit() {
+  if (!redoHistory.length) { setStatus("Nothing to redo yet."); return; }
+  undoHistory.push(captureHistoryState());
+  restoreHistoryState(redoHistory.pop());
+  setStatus("Redo complete.");
+}
 function choose(node) {
   selected = node;
   if (node) pendingItemID = node.item.itemID;
@@ -2108,6 +2177,8 @@ function visibleMenuPickTargets() {
 
 function runAction(action) {
   playSfx("click");
+  if (action === "undo") { undoEdit(); return; }
+  if (action === "redo") { redoEdit(); return; }
   if (action === "toggleMenu") {
     setMenuVisible(!menuVisible);
     return;
@@ -2271,16 +2342,19 @@ function runAction(action) {
   if (action === "newRoot") {
     if (nodes.some((n) => !n.parent)) { setStatus("A root already exists. Import a different build to replace it."); return; }
     if (!validItemID(pendingItemID)) pendingItemID = "item_crate";
+    pushUndoState();
     choose(createNode(makeItem(pendingItemID), null, [0, 1.1, 0.45]));
     setStatus("Root created. Select it to show the XYZ movement and rotation gizmos.");
   } else if (action === "addPart") {
     if (!selected) { setStatus("Select the parent item before adding a part."); return; }
+    pushUndoState();
     const child = createNode(makeItem(pendingItemID), selected, [0.35, 0.15, 0]);
     choose(child);
     setStatus("Part attached to the selected parent.");
   } else if (action === "delete") {
     if (!selected) { setStatus("Select a part first."); return; }
     if (!selected.parent) { setStatus("The root cannot be deleted. Import another build to replace it."); return; }
+    pushUndoState();
     const parent = selected.parent;
     const doomed = [];
     const collect = (n) => { doomed.push(n); n.children.forEach(collect); };
@@ -2306,6 +2380,7 @@ function runAction(action) {
   } else if (action.startsWith("scale:")) {
     if (!gizmoEnabled) { setStatus("Gizmo off: pick up the item and use both controller grips to resize it."); return; }
     if (!selected) { setStatus("Select an item first."); return; }
+    pushUndoState();
     selected.item.scaleModifier = Math.max(-128, Math.min(127, Number(selected.item.scaleModifier || 0) + Number(action.split(":")[1])));
     syncMesh(selected);
     setStatus(`Scale modifier: ${selected.item.scaleModifier}`);
@@ -2422,6 +2497,7 @@ function applyGizmoDrag(drag, point) {
 }
 function beginHandGizmoDrag(input, proxy, handle) {
   if (!selected || !handle) return false;
+  pushUndoState();
   const drag = makeGizmoDrag(selected, handle, proxy.position);
   drag.proxy = proxy;
   handDragStates.set(input, drag);
@@ -2501,6 +2577,7 @@ function beginDrag(rayController, grip) {
   // mode, never test gizmo pickers: hold grip near the actual part to grab it.
   const gizmoHit = gizmoEnabled ? pickGizmoHandle(rayController) : null;
   if (gizmoHit && selected) {
+    pushUndoState();
     grip.updateMatrixWorld(true);
     const gripPosition = new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld);
     const drag = makeGizmoDrag(selected, gizmoHit.object.userData.gizmoHandle, gizmoHit.point);
@@ -2527,6 +2604,7 @@ function beginDrag(rayController, grip) {
   grip.updateMatrixWorld(true);
   node.group.updateMatrixWorld(true);
   const offset = grip.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
+  pushUndoState();
   dragStates.set(rayController, {
     mode: "object", node, grip, offset,
     lockedLocalQuaternion: gizmoEnabled ? null : node.quaternion.clone()
@@ -2613,6 +2691,7 @@ function tryBeginTwoHandScale() {
   dragStates.delete(leftRecord.controller);
   dragStates.delete(rightRecord.controller);
 
+  pushUndoState();
   if (heldObjectDrag) {
     const node = heldObjectDrag.node;
     node.group.updateWorldMatrix(true, false);
@@ -3168,6 +3247,7 @@ function updateHandTracking(xrFrame) {
         } else {
         const node = nearestNodeToHand(proxy, 0.42);
         if (node) {
+          pushUndoState();
           node.group.updateMatrixWorld(true);
           const offset = proxy.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
           handDragStates.set(input, {
