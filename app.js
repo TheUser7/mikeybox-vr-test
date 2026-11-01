@@ -2652,6 +2652,9 @@ function tryBeginTwoHandScale() {
       startWorldQuaternion: worldGroup.quaternion.clone(),
       playerAnchorWorld: playerAnchorWorld.clone(),
       playerAnchorLocal,
+      // Capture the direction the player is facing so size changes can push
+      // the player backward along that direction, just like ASMBL's editor.
+      startViewDirection: xrCamera.getWorldDirection(new THREE.Vector3()).normalize(),
       startMidpoint: startMidpoint.clone()
     };
     setStatus("PLAYER SIZE + MOVE ACTIVE · Pull hands apart to grow; bring them together to shrink. Move both hands together in X, Y or Z to move through the workspace.");
@@ -2695,10 +2698,10 @@ function pollTwoHandScaleGesture() {
 }
 function applyPlayerScaleAndMove(state, targetScale, handTranslation) {
   // Rebuild from the gesture-start transform each frame to avoid cumulative
-  // drift. Scaling is anchored at the headset/player position, so the user
-  // experiences their virtual size changing instead of orbiting around their
-  // hands. Shared hand translation moves the environment in the opposite
-  // direction, which moves the virtual player in the same XYZ direction.
+  // drift. Scaling is anchored at the headset/player position, then a separate
+  // pushback offsets the player backward along their original facing direction.
+  // The pushback is based on the absolute size change, so growing and shrinking
+  // both move the player backward instead of cancelling each other out.
   worldGroup.position.copy(state.startWorldPosition);
   worldGroup.quaternion.copy(state.startWorldQuaternion);
   worldGroup.scale.setScalar(targetScale);
@@ -2707,6 +2710,11 @@ function applyPlayerScaleAndMove(state, targetScale, handTranslation) {
   const transformedPlayerAnchor = state.playerAnchorLocal.clone().applyMatrix4(worldGroup.matrixWorld);
   worldGroup.position.add(state.playerAnchorWorld.clone().sub(transformedPlayerAnchor));
   worldGroup.position.sub(handTranslation);
+
+  const startPlayerScale = 1 / Math.max(0.0001, state.startWorldScale);
+  const targetPlayerScale = 1 / Math.max(0.0001, targetScale);
+  const pushbackDistance = Math.abs(targetPlayerScale - startPlayerScale);
+  worldGroup.position.addScaledVector(state.startViewDirection, pushbackDistance);
   worldGroup.updateMatrixWorld(true);
 }
 function updateTwoHandScale() {
