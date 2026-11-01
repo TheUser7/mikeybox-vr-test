@@ -1390,13 +1390,34 @@ function encodeNativeBaseEdge(child, parent) {
     wasDynamicStuck: Boolean(poseData.wasDynamicStuck)
   };
 }
+function specialEdgeIsUnchanged(child, parent) {
+  const source = child.sourceSpecialEdge;
+  if (!source || !child.sourceSpecialSnapshot) return false;
+  const snap = child.sourceSpecialSnapshot;
+  const pos = child.group.position;
+  const rot = child.group.quaternion;
+  const close = (a, b) => Math.abs(a - b) < 1e-6;
+  return child.item.itemID === snap.childItemID &&
+    Number(child.item.scaleModifier || 0) === snap.childScale &&
+    parent.item.itemID === snap.parentItemID &&
+    Number(parent.item.scaleModifier || 0) === snap.parentScale &&
+    close(pos.x, snap.x) && close(pos.y, snap.y) && close(pos.z, snap.z) &&
+    close(rot.x, snap.qx) && close(rot.y, snap.qy) &&
+    close(rot.z, snap.qz) && close(rot.w, snap.qw);
+}
 function serializeNode(node) {
   const item = structuredClone(node.item);
   item.children = [];
-  item.stuckChildren = node.children.map((child) => ({
-    item: serializeNode(child),
-    ...encodeNativeBaseEdge(child, node)
-  }));
+  item.stuckChildren = node.children.map((child) => {
+    const serializedItem = serializeNode(child);
+    if (child.sourceSpecialEdge) {
+      if (!specialEdgeIsUnchanged(child, node)) {
+        throw new Error(`Cannot export edited ${child.item.itemID}: its special attachment frame (${child.sourceSpecialEdge.subParentID}) is not editable yet. Restore its original pose and scale to preserve the source edge, or remove/recreate it on the base frame.`);
+      }
+      return { ...structuredClone(child.sourceSpecialEdge), item: serializedItem };
+    }
+    return { item: serializedItem, ...encodeNativeBaseEdge(child, node) };
+  });
   return item;
 }
 function round(n) { return Math.round(n * 10000) / 10000; }
@@ -1426,7 +1447,14 @@ function choose(node) {
 function exportBuild() {
   const root = nodes.find((n) => !n.parent);
   if (!root) { setStatus("Add a root item before exporting."); return; }
-  const blob = new Blob([JSON.stringify(serializeNode(root), null, 2)], { type: "application/json" });
+  let json;
+  try {
+    json = JSON.stringify(serializeNode(root), null, 2);
+  } catch (error) {
+    setStatus(String(error?.message || error).slice(0, 220));
+    return;
+  }
+  const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -1472,6 +1500,18 @@ function importBuild(raw) {
     node.item.stuckChildren = [];
     node.item.children = [];
     syncMesh(node);
+    if (edge && Math.round(Number(edge.subParentID) || 0) !== 0) {
+      node.sourceSpecialEdge = structuredClone(edge);
+      node.sourceSpecialSnapshot = {
+        childItemID: node.item.itemID,
+        childScale: Number(node.item.scaleModifier || 0),
+        parentItemID: parent?.item.itemID || "",
+        parentScale: Number(parent?.item.scaleModifier || 0),
+        x: node.group.position.x, y: node.group.position.y, z: node.group.position.z,
+        qx: node.group.quaternion.x, qy: node.group.quaternion.y,
+        qz: node.group.quaternion.z, qw: node.group.quaternion.w
+      };
+    }
     for (const childEdge of (item.stuckChildren || [])) if (childEdge?.item) walk(childEdge.item, node, childEdge);
     return node;
   }
