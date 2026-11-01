@@ -561,6 +561,7 @@ worldGroup.add(rootGroup);
 let nodes = [];
 let selected = null;
 let clipboardSnapshot = null;
+let clipboardParentUid = null;
 const undoHistory = [];
 const redoHistory = [];
 const HISTORY_LIMIT = 60;
@@ -2029,6 +2030,7 @@ function copySelectedSubtree() {
     return;
   }
   clipboardSnapshot = snapshotNodeTree(selected);
+  clipboardParentUid = selected.parent?.uid ?? null;
   setStatus(`Copied ${selected.item.itemID} and ${countSnapshotNodes(clipboardSnapshot) - 1} attached child item(s). Hold A + Trigger to paste.`);
 }
 function pasteCopiedSubtree() {
@@ -2037,7 +2039,7 @@ function pasteCopiedSubtree() {
     return;
   }
   pushUndoState();
-  const originalParent = selected?.parent || null;
+  const originalParent = clipboardParentUid == null ? null : (nodes.find((node) => node.uid === clipboardParentUid) || null);
   function createFromSnapshot(snapshot, parent, isRoot = false) {
     const position = snapshot.position.slice();
     if (isRoot) position[0] += 0.35;
