@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
-const SITE_VERSION = "ALPHA v0.9.9";
-const SITE_BUILD_ID = "2026.11.01-r12";
+const SITE_VERSION = "1.0.0";
+const SITE_BUILD_ID = "2026.11.01-r13";
 const UI_PANEL_FONT_SCALE = 1.28;
 const UI_BUTTON_FONT_SCALE = 1.22;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
