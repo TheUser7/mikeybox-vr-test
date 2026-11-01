@@ -2816,9 +2816,10 @@ function updateTwoHandScale() {
 
   const scaleFactor = currentDistance / state.startDistance;
   if (state.kind === "player") {
-    // Pulling the hands apart makes the virtual player larger, so the
-    // surrounding workspace becomes smaller relative to the headset.
-    const desiredWorldScale = THREE.MathUtils.clamp(state.startWorldScale / scaleFactor, 0.25, 4.0);
+    // Bringing the hands together makes the virtual player larger;
+    // pulling the hands apart makes the player smaller.
+    // worldGroup is the inverse of player scale, so its scale follows hand distance.
+    const desiredWorldScale = THREE.MathUtils.clamp(state.startWorldScale * scaleFactor, 0.25, 4.0);
     const currentMidpoint = leftPosition.clone().add(rightPosition).multiplyScalar(0.5);
     const handTranslation = currentMidpoint.clone().sub(state.startMidpoint);
     const scaleChanged = Math.abs(desiredWorldScale - worldGroup.scale.x) > 0.0005;
