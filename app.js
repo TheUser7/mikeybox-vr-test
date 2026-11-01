@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.01-r15";
+const SITE_BUILD_ID = "2026.11.01-r16";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -560,6 +560,7 @@ const rootGroup = new THREE.Group();
 worldGroup.add(rootGroup);
 let nodes = [];
 let selected = null;
+let clipboardSnapshot = null;
 const undoHistory = [];
 const redoHistory = [];
 const HISTORY_LIMIT = 60;
@@ -2005,6 +2006,57 @@ function redoEdit() {
   restoreHistoryState(redoHistory.pop());
   setStatus("Redo complete.");
 }
+function snapshotNodeTree(node) {
+  const item = structuredClone(node.item);
+  item.children = [];
+  item.stuckChildren = [];
+  return {
+    item,
+    position: node.position.toArray(),
+    quaternion: node.quaternion.toArray(),
+    edgePose: structuredClone(node.edgePose || {}),
+    sourceSpecialEdge: node.sourceSpecialEdge ? structuredClone(node.sourceSpecialEdge) : null,
+    sourceSpecialSnapshot: node.sourceSpecialSnapshot ? structuredClone(node.sourceSpecialSnapshot) : null,
+    children: node.children.map(snapshotNodeTree)
+  };
+}
+function countSnapshotNodes(snapshot) {
+  return 1 + snapshot.children.reduce((total, child) => total + countSnapshotNodes(child), 0);
+}
+function copySelectedSubtree() {
+  if (!selected || !nodes.includes(selected)) {
+    setStatus("Select an item first, then hold A + Grip to copy it.");
+    return;
+  }
+  clipboardSnapshot = snapshotNodeTree(selected);
+  setStatus(`Copied ${selected.item.itemID} and ${countSnapshotNodes(clipboardSnapshot) - 1} attached child item(s). Hold A + Trigger to paste.`);
+}
+function pasteCopiedSubtree() {
+  if (!clipboardSnapshot) {
+    setStatus("Nothing copied yet. Select an item and hold A + Grip first.");
+    return;
+  }
+  pushUndoState();
+  const originalParent = selected?.parent || null;
+  function createFromSnapshot(snapshot, parent, isRoot = false) {
+    const position = snapshot.position.slice();
+    if (isRoot) position[0] += 0.35;
+    const node = createNode(structuredClone(snapshot.item), parent, position);
+    node.position.fromArray(position);
+    node.quaternion.fromArray(snapshot.quaternion);
+    node.edgePose = structuredClone(snapshot.edgePose || {});
+    if (snapshot.sourceSpecialEdge) node.sourceSpecialEdge = structuredClone(snapshot.sourceSpecialEdge);
+    if (snapshot.sourceSpecialSnapshot) node.sourceSpecialSnapshot = structuredClone(snapshot.sourceSpecialSnapshot);
+    node.group.position.copy(node.position);
+    node.group.quaternion.copy(node.quaternion);
+    syncMesh(node);
+    for (const child of snapshot.children) createFromSnapshot(child, node, false);
+    return node;
+  }
+  const pastedRoot = createFromSnapshot(clipboardSnapshot, originalParent, true);
+  choose(pastedRoot);
+  setStatus(`Pasted ${countSnapshotNodes(clipboardSnapshot)} item(s), including all attached children. Grab the copy to move it.`);
+}
 function choose(node) {
   selected = node;
   if (node) pendingItemID = node.item.itemID;
@@ -2536,6 +2588,11 @@ function pickGizmoHandle(controller) {
   return hits.length ? hits[0] : null;
 }
 function onTrigger(controller) {
+  const rightRecord = controllerRecords.find((record) => record.controller === controller && record.handedness === "right");
+  if (rightRecord && isCopyModifierHeld(rightRecord)) {
+    pasteCopiedSubtree();
+    return;
+  }
   getControllerRay(controller);
   const buttonHits = raycaster.intersectObjects(visibleMenuPickTargets(), false);
   if (buttonHits.length) {
@@ -2652,6 +2709,12 @@ function refreshControllerInputSources() {
       record.handedness = source.handedness || record.handedness;
     }
   }
+}
+function isCopyModifierHeld(record) {
+  if (record?.handedness !== "right") return false;
+  const source = record.inputSource || record.controller.userData?.inputSource || record.grip.userData?.inputSource;
+  const aButton = source?.gamepad?.buttons?.[4];
+  return Boolean(aButton?.pressed || (Number(aButton?.value) || 0) >= 0.75);
 }
 function isControllerGripHeld(record) {
   const source = record.inputSource || record.controller.userData?.inputSource || record.grip.userData?.inputSource;
@@ -2989,6 +3052,10 @@ function setupController(index) {
   controller.addEventListener("selectstart", () => onTrigger(controller));
   controller.addEventListener("squeezestart", () => {
     record.squeezePressed = true;
+    if (isCopyModifierHeld(record)) {
+      if (record.handedness === "right") copySelectedSubtree();
+      return;
+    }
     if (tryBeginTwoHandScale()) return;
     const bothControllersHeld = controllerRecords.length >= 2
       && controllerRecords.every((candidate) => isControllerGripHeld(candidate));
