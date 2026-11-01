@@ -2794,7 +2794,11 @@ function applyPlayerScaleAndMove(state, targetScale, handTranslation) {
 
   const transformedPlayerAnchor = state.playerAnchorLocal.clone().applyMatrix4(worldGroup.matrixWorld);
   worldGroup.position.add(state.playerAnchorWorld.clone().sub(transformedPlayerAnchor));
-  worldGroup.position.sub(handTranslation);
+  // Vertical hand movement is inverted for the player-size grab:
+  // pulling both controllers up moves the player down, and vice versa.
+  const playerGrabTranslation = handTranslation.clone();
+  playerGrabTranslation.y *= -1;
+  worldGroup.position.sub(playerGrabTranslation);
 
   const startPlayerScale = 1 / Math.max(0.0001, state.startWorldScale);
   const targetPlayerScale = 1 / Math.max(0.0001, targetScale);
