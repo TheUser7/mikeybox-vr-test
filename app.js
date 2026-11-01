@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.01-r14";
+const SITE_BUILD_ID = "2026.11.01-r15";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -1465,8 +1465,7 @@ function applyObjectDrag(node, proxy, offset, lockedLocalQuaternion = null) {
   parent.updateWorldMatrix(true, false);
   const local = parent.matrixWorld.clone().invert().multiply(desiredWorld);
   local.decompose(node.position, node.quaternion, new THREE.Vector3());
-  // In B/gizmo-off object-only mode, a direct pickup moves the item with the
-  // controller but does not twist it. Rotation is available again with B on.
+  // Direct object grabs follow the controller/hand rotation in both modes.
   if (lockedLocalQuaternion) node.quaternion.copy(lockedLocalQuaternion);
   else if (snapConfig.rotationEnabled) node.quaternion.copy(snapLocalEuler(node.quaternion));
   node.group.position.copy(node.position);
@@ -2613,7 +2612,7 @@ function beginDrag(rayController, grip) {
   pushUndoState();
   dragStates.set(rayController, {
     mode: "object", node, grip, offset,
-    lockedLocalQuaternion: gizmoEnabled ? null : node.quaternion.clone()
+    lockedLocalQuaternion: null
   });
   if (snapConfig.positionEnabled || snapConfig.rotationEnabled) playSfx("snapOut");
   choose(node);
@@ -3263,7 +3262,7 @@ function updateHandTracking(xrFrame) {
           const offset = proxy.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
           handDragStates.set(input, {
             mode: "object", node, proxy, offset,
-            lockedLocalQuaternion: gizmoEnabled ? null : node.quaternion.clone()
+            lockedLocalQuaternion: null
           });
           if (snapConfig.positionEnabled || snapConfig.rotationEnabled) playSfx("snapOut");
           choose(node);
