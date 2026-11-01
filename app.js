@@ -22,7 +22,9 @@ const MODEL_ASSETS = new Map([
   ["item_crate", "animal_company_-_crate.glb"],
   ["item_rubberducky", "animal_company_-_rubberducky.glb"],
   ["item_flashlight_mega", "animal_company_-_flashlight_mega.glb"],
-  ["item_hoverpad", "animal_company_-_hover_pad.glb"]
+  ["item_hoverpad", "animal_company_-_hover_pad.glb"],
+  ["item_joystick", "animal_company_-_joystick.glb"],
+  ["item_joystick_inv_y", "animal_company_-_joystick.glb"]
 ]);
 const gltfLoader = new GLTFLoader();
 gltfLoader.setCrossOrigin("anonymous");
