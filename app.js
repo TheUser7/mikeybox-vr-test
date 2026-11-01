@@ -1177,6 +1177,8 @@ function syncMesh(node) {
     node.group.quaternion.copy(node.quaternion).normalize();
   }
   if (node.mesh) node.mesh.scale.setScalar(physicalScaleForItem(node.item));
+  const stickMount = node.group?.children?.find((child) => child.userData?.joystickStickMount);
+  if (stickMount) joystickStickMountFor(node);
   if (node === selected) updateTransformGizmo();
 }
 function makeItemPreviewGeometry(id) {
