@@ -1056,8 +1056,8 @@ function drawMainPanel() {
     addPanelText("CIRCLES · ROTATE XYZ", 0, -0.34, 1.50, 0.09, 23, "#a9c2cf");
     addPanelText("HOLD ITEM + BOTH GRIPS · SCALE ITEM", 0, -0.49, 1.55, 0.07, 17, "#a9c2cf");
     addPanelText("EMPTY HANDS + BOTH GRIPS · PLAYER SIZE", 0, -0.59, 1.55, 0.07, 16, "#a9c2cf");
-    addButton("SCALE −", "scale:-1", -0.38, -0.73, 0.48, 0.13);
-    addButton("SCALE +", "scale:1", 0.15, -0.73, 0.48, 0.13);
+    addButton("SCALE −", "scale:-1", -0.28, -0.69, 0.42, 0.10);
+    addButton("SCALE +", "scale:1", 0.28, -0.69, 0.42, 0.10);
   } else {
     addPanelText("GIZMO OFF · OBJECT-ONLY MODE", 0, -0.04, 1.48, 0.09, 25, "#91e3c4");
     addPanelText("HOLD ONE GRIP NEAR A PART TO PICK IT UP", 0, -0.22, 1.55, 0.08, 19, "#ffcf8a");
@@ -1065,10 +1065,10 @@ function drawMainPanel() {
     addPanelText("PULL APART / PUSH TOGETHER TO RESIZE", 0, -0.51, 1.55, 0.08, 19, "#a9c2cf");
     addPanelText("PLAYER SCALING + GIZMO HANDLES DISABLED", 0, -0.65, 1.58, 0.07, 15, "#dfb18b");
   }
-  addButton("HIERARCHY", "openHierarchy", -0.43, -0.73, 0.68, 0.11, "active");
-  addButton("SNAP SETTINGS", "snapSettings", 0.43, -0.73, 0.68, 0.11, "active");
-  addButton("UNDO", "undo", -0.43, -0.92, 0.48, 0.11, undoHistory.length ? "good" : "muted");
-  addButton("REDO", "redo", 0.43, -0.92, 0.48, 0.11, redoHistory.length ? "good" : "muted");
+  addButton("HIERARCHY", "openHierarchy", -0.43, -0.81, 0.68, 0.10, "active");
+  addButton("SNAP SETTINGS", "snapSettings", 0.43, -0.81, 0.68, 0.10, "active");
+  addButton("UNDO", "undo", -0.43, -0.93, 0.48, 0.10, undoHistory.length ? "good" : "muted");
+  addButton("REDO", "redo", 0.43, -0.93, 0.48, 0.10, redoHistory.length ? "good" : "muted");
 }
 function getItemDisplayName(id) {
   return ITEM_CATALOG_BY_ID.get(id)?.name || String(id || "Unknown item").replace(/^item_/, "").replace(/_/g, " ");
