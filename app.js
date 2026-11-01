@@ -2124,7 +2124,10 @@ function handleKeyboardAction(action) {
       return;
     }
     pendingItemID = keyboardDraft;
-    if (keyboardTarget === "selected" && selected) refreshNodeID(selected, keyboardDraft);
+    if (keyboardTarget === "selected" && selected) {
+      pushUndoState();
+      refreshNodeID(selected, keyboardDraft);
+    }
     keyboardOpen = false;
     keyboardTarget = "selected";
     setStatus(`Item ID set to ${keyboardDraft}.`);
@@ -2133,6 +2136,7 @@ function handleKeyboardAction(action) {
 }
 function nudgeMove(index) {
   if (!selected) { setStatus("Select an item first."); return; }
+  pushUndoState();
   const axisIndex = Math.floor(index / 2);
   const amount = (index % 2 === 0 ? -1 : 1) * (snapConfig.positionEnabled ? snapConfig.positionStep : 0.05);
   selected.group.updateWorldMatrix(true, false);
@@ -2143,6 +2147,7 @@ function nudgeMove(index) {
 }
 function nudgeRotate(index) {
   if (!selected) { setStatus("Select an item first."); return; }
+  pushUndoState();
   const axisIndex = Math.floor(index / 2);
   const sign = index % 2 === 0 ? -1 : 1;
   const requested = THREE.MathUtils.degToRad(snapConfig.rotationEnabled ? snapConfig.rotationStepDegrees : 15) * sign;
@@ -2273,6 +2278,7 @@ function runAction(action) {
         return;
       }
       const parent = selected;
+      pushUndoState();
       const child = createNode(makeItem(entry.id), parent, [0.35, 0.15, 0]);
       hierarchyOpen = true;
       hierarchyListMode = "children";
