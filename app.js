@@ -1421,6 +1421,30 @@ function encodeNativeBaseEdge(child, parent) {
     wasDynamicStuck: Boolean(poseData.wasDynamicStuck)
   };
 }
+function encodeNativeJoystickEdge(child, parent) {
+  // The child group is expressed in the joystick Stick NetParent transform:
+  // frame position (0, 8.261284 mm), rotation -90deg X, and uniform 0.005 scale.
+  // Invert the exact frame-local conversion used by the native editor.
+  const poseData = child.edgePose || {};
+  const posePos = Array.isArray(poseData.posePos) ? poseData.posePos : [0, 0, 0];
+  const poseRot = Array.isArray(poseData.poseRot) ? poseData.poseRot : [0, 0, 0, 1];
+  const childScale = physicalScaleForItem(child.item);
+  const frameScale = 0.005;
+  const parentScale = physicalScaleForItem(parent.item);
+  const displayPosition = child.group.position.clone();
+  const displayRotation = child.group.quaternion.clone().normalize();
+  const anchorOffset = nativePosePosition(posePos).multiplyScalar(childScale).applyQuaternion(displayRotation);
+  const edgePosition = displayPosition.add(anchorOffset.multiplyScalar(1 / (frameScale * parentScale)));
+  const edgeRotation = displayRotation.multiply(normalizedPoseQuaternion(poseRot)).normalize();
+  return {
+    subParentID: 1,
+    pos: [round(edgePosition.x), round(edgePosition.y), round(edgePosition.z)],
+    rot: [round(edgeRotation.x), round(edgeRotation.y), round(edgeRotation.z), round(edgeRotation.w)],
+    posePos: posePos.map(round),
+    poseRot: normalizedPoseQuaternion(poseRot).toArray().map(round),
+    wasDynamicStuck: Boolean(poseData.wasDynamicStuck)
+  };
+}
 function specialEdgeIsUnchanged(child, parent) {
   const source = child.sourceSpecialEdge;
   if (!source || !child.sourceSpecialSnapshot) return false;
@@ -1447,7 +1471,11 @@ function serializeNode(node) {
       }
       return { ...structuredClone(child.sourceSpecialEdge), item: serializedItem };
     }
-    return { item: serializedItem, ...encodeNativeBaseEdge(child, node) };
+    const subParentID = Math.round(Number(child.edgePose?.subParentID) || 0);
+    const encoded = subParentID === 1 && ["item_joystick", "item_joystick_inv_y"].includes(node.item.itemID)
+      ? encodeNativeJoystickEdge(child, node)
+      : encodeNativeBaseEdge(child, node);
+    return { item: serializedItem, ...encoded };
   });
   return item;
 }
