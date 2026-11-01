@@ -1353,6 +1353,36 @@ function nativePosePosition(values) {
     Number.isFinite(Number(a[2])) ? Number(a[2]) : 0
   );
 }
+function joystickStickMountFor(parent) {
+  if (!["item_joystick", "item_joystick_inv_y"].includes(parent.item.itemID)) return null;
+  let mount = parent.group.children.find((child) => child.userData?.joystickStickMount);
+  if (!mount) {
+    mount = new THREE.Group();
+    mount.name = "joystick_stick_mount";
+    mount.userData.joystickStickMount = true;
+    mount.matrixAutoUpdate = false;
+    parent.group.add(mount);
+  }
+  const parentScale = physicalScaleForItem(parent.item);
+  const framePosition = new THREE.Vector3(0, 8.261284 * 0.005, 0).multiplyScalar(parentScale);
+  const frameRotation = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
+  mount.matrix.compose(framePosition, frameRotation, new THREE.Vector3(0.005 * parentScale, 0.005 * parentScale, 0.005 * parentScale));
+  mount.matrixWorldNeedsUpdate = true;
+  return mount;
+}
+function decodeNativeJoystickEdge(edge, parent, childItem) {
+  const frameScale = 0.005;
+  const frameRotation = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
+  const inverseFrame = frameRotation.clone().invert();
+  const childScale = physicalScaleForItem(childItem);
+  const edgePosition = nativePosePosition(edge?.pos);
+  const posePosition = nativePosePosition(edge?.posePos).multiplyScalar(childScale);
+  const poseRotation = normalizedPoseQuaternion(edge?.poseRot);
+  const edgeRotation = normalizedPoseQuaternion(edge?.rot);
+  const localPosition = edgePosition.sub(posePosition.applyQuaternion(edgeRotation.clone().multiply(poseRotation.clone().invert())).applyQuaternion(inverseFrame).multiplyScalar(1 / frameScale));
+  const localRotation = inverseFrame.multiply(edgeRotation).multiply(poseRotation.clone().invert()).normalize();
+  return { position: localPosition, quaternion: localRotation };
+}
 function decodeNativeBaseEdge(edge, parent, childItem) {
   // Prime's base NetParent (subParentID 0) is the identity frame. Edge `pos`
   // is stored in parent-item scale units, then expanded to displayed metres.
@@ -1481,16 +1511,24 @@ function importBuild(raw) {
         const decoded = decodeNativeBaseEdge(edge, parent, item);
         position.copy(decoded.position);
         rotation.copy(decoded.quaternion);
+      } else if (subParentID === 1 && ["item_joystick", "item_joystick_inv_y"].includes(parent.item.itemID)) {
+        const decoded = decodeNativeJoystickEdge(edge, parent, item);
+        position.copy(decoded.position);
+        rotation.copy(decoded.quaternion);
       } else {
-        // This builder authors base-frame attachments. Special NetParent frames
-        // are not reconstructed here, so show their stored values and flag them.
+        // Unknown attachment frames are retained verbatim and cannot be exported after edits.
         position.copy(nativePosePosition(edge.pos));
         rotation.copy(normalizedPoseQuaternion(edge.rot));
-        setStatus(`Imported ${item.itemID} with special attachment frame ${subParentID}; placement may be approximate in this builder.`);
+        setStatus(`Imported ${item.itemID} with unsupported attachment frame ${subParentID}; its original edge will be preserved unless edited.`);
       }
     }
     const node = createNode(structuredClone(item), parent, position.toArray());
     node.quaternion.copy(rotation);
+    if (parent && Math.round(Number(edge?.subParentID) || 0) === 1 &&
+        ["item_joystick", "item_joystick_inv_y"].includes(parent.item.itemID)) {
+      const mount = joystickStickMountFor(parent);
+      mount.add(node.group);
+    }
     node.edgePose = edge ? {
       subParentID: Math.round(Number(edge.subParentID) || 0),
       posePos: Array.isArray(edge.posePos) ? edge.posePos.slice(0, 3) : [0, 0, 0],
