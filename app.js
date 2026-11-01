@@ -1372,6 +1372,48 @@ function joystickStickMountFor(parent) {
   mount.matrixWorldNeedsUpdate = true;
   return mount;
 }
+function readJoystickPreviewStick() {
+  const session = renderer.xr.getSession();
+  if (!session) return [0, 0];
+  let best = [0, 0];
+  for (const source of session.inputSources || []) {
+    const pad = source.gamepad;
+    if (!pad?.axes || pad.axes.length < 2) continue;
+    const axes = Array.from(pad.axes, (value) => Number.isFinite(Number(value)) ? Number(value) : 0);
+    const pair = axes.length >= 4 ? 2 : 0;
+    const stick = [axes[pair] || 0, -(axes[pair + 1] || 0)];
+    const magnitude = Math.hypot(...stick);
+    if (magnitude > Math.hypot(...best)) best = stick;
+  }
+  const magnitude = Math.hypot(...best);
+  if (magnitude < 0.12) return [0, 0];
+  const scaled = (magnitude - 0.12) / 0.88;
+  return magnitude > 1 ? best.map((value) => value / magnitude) : best.map((value) => value * scaled / magnitude);
+}
+function updateJoystickStickMotion() {
+  const [x, y] = readJoystickPreviewStick();
+  for (const parent of nodes) {
+    if (!["item_joystick", "item_joystick_inv_y"].includes(parent.item.itemID)) continue;
+    const mount = joystickStickMountFor(parent);
+    if (!mount) continue;
+    const parentScale = physicalScaleForItem(parent.item);
+    const pivot = new THREE.Vector3(0, 8.261284 * 0.005, 0).multiplyScalar(parentScale);
+    const frameRotation = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
+    const vertical = parent.item.itemID === "item_joystick_inv_y" ? -y : y;
+    const localRotation = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(THREE.MathUtils.degToRad(vertical * 30), THREE.MathUtils.degToRad(x * 30), 0, "YXZ")
+    );
+    const deltaRotation = frameRotation.clone().multiply(localRotation).multiply(frameRotation.clone().invert()).normalize();
+    const deltaPosition = pivot.clone().sub(pivot.clone().applyQuaternion(deltaRotation));
+    const delta = new THREE.Matrix4().compose(deltaPosition, deltaRotation, new THREE.Vector3(1, 1, 1));
+    const rest = new THREE.Matrix4().compose(
+      pivot, frameRotation,
+      new THREE.Vector3(0.005 * parentScale, 0.005 * parentScale, 0.005 * parentScale)
+    );
+    mount.matrix.copy(delta.multiply(rest));
+    mount.matrixWorldNeedsUpdate = true;
+  }
+}
 function decodeNativeJoystickEdge(edge, parent, childItem) {
   const frameScale = 0.005;
   const parentScale = physicalScaleForItem(parent.item);
@@ -2950,6 +2992,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
   }
   updateDrags();
   if (renderer.xr.isPresenting) {
+    updateJoystickStickMotion();
     updateJoystickMovement(deltaSeconds);
     updateTransformGizmo();
     updateScaleFeedbackPose();
