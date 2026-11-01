@@ -1373,14 +1373,13 @@ function joystickStickMountFor(parent) {
 function decodeNativeJoystickEdge(edge, parent, childItem) {
   const frameScale = 0.005;
   const frameRotation = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
-  const inverseFrame = frameRotation.clone().invert();
   const childScale = physicalScaleForItem(childItem);
   const edgePosition = nativePosePosition(edge?.pos);
   const posePosition = nativePosePosition(edge?.posePos).multiplyScalar(childScale);
   const poseRotation = normalizedPoseQuaternion(edge?.poseRot);
   const edgeRotation = normalizedPoseQuaternion(edge?.rot);
-  const localPosition = edgePosition.sub(posePosition.applyQuaternion(edgeRotation.clone().multiply(poseRotation.clone().invert())).applyQuaternion(inverseFrame).multiplyScalar(1 / frameScale));
-  const localRotation = inverseFrame.multiply(edgeRotation).multiply(poseRotation.clone().invert()).normalize();
+  const localPosition = edgePosition.sub(posePosition.applyQuaternion(edgeRotation).multiplyScalar(1 / frameScale));
+  const localRotation = edgeRotation.multiply(poseRotation.clone().invert()).normalize();
   return { position: localPosition, quaternion: localRotation };
 }
 function decodeNativeBaseEdge(edge, parent, childItem) {
