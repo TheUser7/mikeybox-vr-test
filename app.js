@@ -1571,7 +1571,10 @@ function importBuild(raw) {
     node.item.stuckChildren = [];
     node.item.children = [];
     syncMesh(node);
-    if (edge && Math.round(Number(edge.subParentID) || 0) !== 0) {
+    const importedSubParentID = Math.round(Number(edge?.subParentID) || 0);
+    const supportedJoystickFrame = importedSubParentID === 1 &&
+      ["item_joystick", "item_joystick_inv_y"].includes(parent?.item.itemID);
+    if (edge && importedSubParentID !== 0 && !supportedJoystickFrame) {
       node.sourceSpecialEdge = structuredClone(edge);
       node.sourceSpecialSnapshot = {
         childItemID: node.item.itemID,
