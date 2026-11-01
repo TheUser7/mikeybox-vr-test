@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
-const SITE_VERSION = "ALPHA v0.9.8";
-const SITE_BUILD_ID = "2026.10.31-r10";
+const SITE_VERSION = "ALPHA v0.9.9";
+const SITE_BUILD_ID = "2026.10.31-r11";
 const UI_PANEL_FONT_SCALE = 1.28;
 const UI_BUTTON_FONT_SCALE = 1.22;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -1387,8 +1387,7 @@ function readJoystickPreviewStick() {
   }
   const magnitude = Math.hypot(...best);
   if (magnitude < 0.12) return [0, 0];
-  const scaled = (magnitude - 0.12) / 0.88;
-  return magnitude > 1 ? best.map((value) => value / magnitude) : best.map((value) => value * scaled / magnitude);
+  return magnitude > 1 ? best.map((value) => value / magnitude) : best;
 }
 function updateJoystickStickMotion() {
   const [x, y] = readJoystickPreviewStick();
