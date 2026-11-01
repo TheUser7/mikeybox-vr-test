@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.01-r18";
+const SITE_BUILD_ID = "2026.11.01-r19";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -2662,12 +2662,23 @@ function nearestNodeToHand(grip, maxSurfaceDistance = 0.38) {
 }
 function updateRightHandMultiSelection() {
   const record = controllerRecords.find((entry) => entry.handedness === "right");
-  if (!record || !isCopyModifierHeld(record)) { if (record) record.multiSelectTouches = new Set(); return; }
+  if (!record) return;
+  const modifierHeld = isCopyModifierHeld(record);
+  if (!modifierHeld) {
+    record.multiSelectTouches = new Set();
+    if (record.multiSelectWasHeld) setStatus("Multi-select off. Hold A and touch parts to add them.");
+    record.multiSelectWasHeld = false;
+    return;
+  }
+  if (!record.multiSelectWasHeld) setStatus("A detected: touch parts with your right controller to add them.");
+  record.multiSelectWasHeld = true;
   record.grip.updateMatrixWorld(true);
   const handPosition = new THREE.Vector3().setFromMatrixPosition(record.grip.matrixWorld);
   const touchingNow = new Set();
   for (const node of nodes) {
-    if (nodeGrabSurfaceDistance(node, handPosition) <= 0.055) {
+    // Quest's grip pose sits behind the controller shell, so allow a forgiving
+    // surface margin to make physical-touch selection register consistently.
+    if (nodeGrabSurfaceDistance(node, handPosition) <= 0.20) {
       touchingNow.add(node);
       if (!record.multiSelectTouches?.has(node)) addToMultiSelection(node);
     }
