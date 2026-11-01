@@ -1391,12 +1391,25 @@ function readJoystickPreviewStick() {
   if (magnitude < 0.12) return [0, 0];
   return magnitude > 1 ? best.map((value) => value / magnitude) : best;
 }
+function isJoystickStickEditHeld() {
+  if (!renderer.xr.isPresenting || !selected ||
+      !["item_joystick", "item_joystick_inv_y"].includes(selected.item.itemID)) return false;
+  const session = renderer.xr.getSession();
+  const rightSource = Array.from(session?.inputSources || []).find(
+    (source) => source.handedness === "right" && source.gamepad
+  );
+  // Meta Touch WebXR mapping: buttons[4] is A on the right controller.
+  const aButton = rightSource?.gamepad?.buttons?.[4];
+  return Boolean(aButton?.pressed || (Number(aButton?.value) || 0) >= 0.75);
+}
 function updateJoystickStickMotion() {
+  if (!isJoystickStickEditHeld()) return;
+  const parent = selected;
   const [x, y] = readJoystickPreviewStick();
-  for (const parent of nodes) {
-    if (!["item_joystick", "item_joystick_inv_y"].includes(parent.item.itemID)) continue;
+  {
+    if (!["item_joystick", "item_joystick_inv_y"].includes(parent.item.itemID)) return;
     const mount = joystickStickMountFor(parent);
-    if (!mount) continue;
+    if (!mount) return;
     const parentScale = physicalScaleForItem(parent.item);
     const pivot = new THREE.Vector3(0, 8.261284 * 0.005, 0).multiplyScalar(parentScale);
     const frameRotation = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
@@ -2386,7 +2399,7 @@ function applyPlayerSnapTurn(xrCamera, direction) {
 }
 
 function updateJoystickMovement(deltaSeconds) {
-  if (!renderer.xr.isPresenting) return;
+  if (!renderer.xr.isPresenting || isJoystickStickEditHeld()) return;
   // Avoid moving the workspace while a part is being manipulated or an
   // in-VR text keypad is open. Otherwise locomotion is independent of selection.
   if (dragStates.size || handDragStates.size || twoHandScaleState || controllerRecords.some((record) => record.squeezePressed) || keyboardOpen || snapValueKeyboardOpen) return;
