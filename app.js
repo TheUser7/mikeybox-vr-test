@@ -1374,13 +1374,17 @@ function joystickStickMountFor(parent) {
 }
 function decodeNativeJoystickEdge(edge, parent, childItem) {
   const frameScale = 0.005;
-  const frameRotation = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
+  const parentScale = physicalScaleForItem(parent.item);
   const childScale = physicalScaleForItem(childItem);
   const edgePosition = nativePosePosition(edge?.pos);
   const posePosition = nativePosePosition(edge?.posePos).multiplyScalar(childScale);
   const poseRotation = normalizedPoseQuaternion(edge?.poseRot);
   const edgeRotation = normalizedPoseQuaternion(edge?.rot);
-  const localPosition = edgePosition.sub(posePosition.applyQuaternion(edgeRotation).multiplyScalar(1 / frameScale));
+  // Parent physical scale is part of the NetParent matrix, so convert the
+  // child's anchor offset into stick-local units using both scale factors.
+  const localPosition = edgePosition.sub(
+    posePosition.applyQuaternion(edgeRotation).multiplyScalar(1 / (frameScale * parentScale))
+  );
   const localRotation = edgeRotation.multiply(poseRotation.clone().invert()).normalize();
   return { position: localPosition, quaternion: localRotation };
 }
