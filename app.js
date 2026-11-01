@@ -560,6 +560,8 @@ const rootGroup = new THREE.Group();
 worldGroup.add(rootGroup);
 let nodes = [];
 let selected = null;
+const selectedNodes = new Set();
+const selectionOutlines = new Map();
 
 const undoHistory = [];
 const redoHistory = [];
@@ -1039,7 +1041,7 @@ function drawPanelBackground(title) {
 function drawMainPanel() {
   clearPanel();
   drawPanelBackground("GOOP VR BUILDER");
-  const selectedLabel = selected ? `SELECTED: ${getItemDisplayName(selected.item.itemID)}` : "SELECTED: NONE";
+  const selectedLabel = selectedNodes.size > 1 ? `SELECTED: ${selectedNodes.size} ITEMS` : selected ? `SELECTED: ${getItemDisplayName(selected.item.itemID)}` : "SELECTED: NONE";
   addPanelText(selectedLabel, 0, 0.56, 1.52, 0.085, 23, "#d6e5ed");
   addPanelText(`NEXT ITEM: ${getItemDisplayName(pendingItemID)}`, 0, 0.45, 1.52, 0.075, 21, "#f8df9a");
 
@@ -1936,6 +1938,8 @@ function disposeBuild() {
     if (n.labelSprite?.material?.map) n.labelSprite.material.map.dispose();
     n.labelSprite?.material?.dispose();
   }
+  clearSelectionOutlines();
+  selectedNodes.clear();
   rootGroup.clear();
   nodes = [];
   selected = null;
@@ -1980,6 +1984,9 @@ function restoreHistoryState(snapshot) {
   }
   nextId = Math.max(0, ...snapshot.nodes.map((record) => record.uid)) + 1;
   selected = restored.get(snapshot.selectedUid) || null;
+  selectedNodes.clear();
+  if (selected) selectedNodes.add(selected);
+  refreshSelectionOutlines();
   pendingItemID = snapshot.pendingItemID || "item_crate";
   worldGroup.position.fromArray(snapshot.worldPosition);
   worldGroup.quaternion.fromArray(snapshot.worldQuaternion);
@@ -2052,11 +2059,41 @@ function duplicateNodeSubtreeForGrab(source, rayController, grip) {
   setStatus(`Holding a copy of ${source.item.itemID} with ${countSnapshotNodes(snapshot) - 1} attached child item(s). The original stays in place.`);
   return true;
 }
+function clearSelectionOutlines() {
+  for (const helper of selectionOutlines.values()) {
+    scene.remove(helper); helper.geometry?.dispose(); helper.material?.dispose();
+  }
+  selectionOutlines.clear();
+}
+function refreshSelectionOutlines() {
+  for (const [node, helper] of selectionOutlines) {
+    if (!selectedNodes.has(node) || !nodes.includes(node)) {
+      scene.remove(helper); helper.geometry?.dispose(); helper.material?.dispose(); selectionOutlines.delete(node);
+    }
+  }
+  for (const node of selectedNodes) {
+    if (!nodes.includes(node) || selectionOutlines.has(node)) continue;
+    const helper = new THREE.BoxHelper(node.group, 0x35f2c1);
+    helper.material.depthTest = false; helper.material.transparent = true; helper.material.opacity = 0.95;
+    helper.renderOrder = 1000; scene.add(helper); selectionOutlines.set(node, helper);
+  }
+}
+function addToMultiSelection(node) {
+  if (!node || !nodes.includes(node) || selectedNodes.has(node)) return false;
+  selectedNodes.add(node); selected = node; pendingItemID = node.item.itemID;
+  refreshSelectionOutlines(); updateTransformGizmo(); redrawPanel();
+  setStatus(`Added ${getItemDisplayName(node.item.itemID)}. ${selectedNodes.size} item(s) selected.`);
+  return true;
+}
+function isNodeDescendantOf(node, possibleAncestor) {
+  let current = node?.parent || null;
+  while (current) { if (current === possibleAncestor) return true; current = current.parent; }
+  return false;
+}
 function choose(node) {
-  selected = node;
-  if (node) pendingItemID = node.item.itemID;
-  updateTransformGizmo();
-  redrawPanel();
+  selectedNodes.clear(); selected = node;
+  if (node) { selectedNodes.add(node); pendingItemID = node.item.itemID; }
+  refreshSelectionOutlines(); updateTransformGizmo(); redrawPanel();
 }
 function exportBuild() {
   const root = nodes.find((n) => !n.parent);
@@ -2404,20 +2441,18 @@ function runAction(action) {
     choose(child);
     setStatus("Part attached to the selected parent.");
   } else if (action === "delete") {
-    if (!selected) { setStatus("Select a part first."); return; }
-    if (!selected.parent) { setStatus("The root cannot be deleted. Import another build to replace it."); return; }
+    if (!selectedNodes.size) { setStatus("Select one or more parts first."); return; }
+    const rootsToDelete = [...selectedNodes].filter((node) => node.parent && ![...selectedNodes].some((other) => other !== node && isNodeDescendantOf(node, other)));
+    if (!rootsToDelete.length) { setStatus("The root cannot be deleted. Select other parts or import another build."); return; }
     pushUndoState();
-    const parent = selected.parent;
-    const doomed = [];
-    const collect = (n) => { doomed.push(n); n.children.forEach(collect); };
-    collect(selected);
-    parent.children = parent.children.filter((n) => n !== selected);
-    for (const n of doomed) {
-      n.group.parent?.remove(n.group);
-      nodes = nodes.filter((x) => x !== n);
-    }
-    choose(parent);
-    setStatus("Selected part and its attached children deleted.");
+    const doomed = new Set();
+    const collect = (node) => { if (doomed.has(node)) return; doomed.add(node); node.children.forEach(collect); };
+    rootsToDelete.forEach(collect);
+    for (const node of rootsToDelete) node.parent.children = node.parent.children.filter((child) => child !== node);
+    for (const node of doomed) { node.group.parent?.remove(node.group); nodes = nodes.filter((entry) => entry !== node); selectedNodes.delete(node); }
+    const fallback = rootsToDelete[0]?.parent && nodes.includes(rootsToDelete[0].parent) ? rootsToDelete[0].parent : nodes.find((node) => !node.parent) || null;
+    choose(fallback);
+    setStatus(`Deleted ${doomed.size} selected item(s), including attached children. The root was preserved.`);
   } else if (action === "editID") {
     openIDKeyboard();
   } else if (action === "export") {
@@ -2431,11 +2466,12 @@ function runAction(action) {
     nudgeRotate(Number(action.split(":")[1]));
   } else if (action.startsWith("scale:")) {
     if (!gizmoEnabled) { setStatus("Gizmo off: pick up the item and use both controller grips to resize it."); return; }
-    if (!selected) { setStatus("Select an item first."); return; }
+    const targets = [...selectedNodes].filter((node) => nodes.includes(node));
+    if (!targets.length) { setStatus("Select one or more items first."); return; }
     pushUndoState();
-    selected.item.scaleModifier = Math.max(-128, Math.min(127, Number(selected.item.scaleModifier || 0) + Number(action.split(":")[1])));
-    syncMesh(selected);
-    setStatus(`Scale modifier: ${selected.item.scaleModifier}`);
+    const amount = Number(action.split(":")[1]);
+    for (const node of targets) { node.item.scaleModifier = Math.max(-128, Math.min(127, Number(node.item.scaleModifier || 0) + amount)); syncMesh(node); }
+    setStatus(`Scaled ${targets.length} selected item(s).`);
   }
 }
 
@@ -2623,6 +2659,20 @@ function nearestNodeToHand(grip, maxSurfaceDistance = 0.38) {
     }
   }
   return nearest;
+}
+function updateRightHandMultiSelection() {
+  const record = controllerRecords.find((entry) => entry.handedness === "right");
+  if (!record || !isCopyModifierHeld(record)) { if (record) record.multiSelectTouches = new Set(); return; }
+  record.grip.updateMatrixWorld(true);
+  const handPosition = new THREE.Vector3().setFromMatrixPosition(record.grip.matrixWorld);
+  const touchingNow = new Set();
+  for (const node of nodes) {
+    if (nodeGrabSurfaceDistance(node, handPosition) <= 0.055) {
+      touchingNow.add(node);
+      if (!record.multiSelectTouches?.has(node)) addToMultiSelection(node);
+    }
+  }
+  record.multiSelectTouches = touchingNow;
 }
 function beginDrag(rayController, grip) {
   // In full-edit mode, a visible gizmo handle has priority. In B/object-only
@@ -3042,12 +3092,6 @@ function setupController(index) {
   controller.addEventListener("selectstart", () => onTrigger(controller));
   controller.addEventListener("squeezestart", () => {
     record.squeezePressed = true;
-    if (isCopyModifierHeld(record) && record.handedness === "right") {
-      const target = nearestNodeToHand(grip, gizmoEnabled ? 0.48 : 0.68)
-        || (selected && nodeGrabSurfaceDistance(selected, new THREE.Vector3().setFromMatrixPosition(grip.matrixWorld)) < (gizmoEnabled ? 0.60 : 0.82) ? selected : null);
-      duplicateNodeSubtreeForGrab(target, controller, grip);
-      return;
-    }
     if (tryBeginTwoHandScale()) return;
     const bothControllersHeld = controllerRecords.length >= 2
       && controllerRecords.every((candidate) => isControllerGripHeld(candidate));
@@ -3524,6 +3568,8 @@ renderer.setAnimationLoop((time, xrFrame) => {
   previousFrameTime = time;
   if (renderer.xr.isPresenting) {
     refreshControllerInputSources();
+    updateRightHandMultiSelection();
+    for (const helper of selectionOutlines.values()) helper.update();
     pollTwoHandScaleGesture();
     if (!leftHandMenuActive && !panelReady) refreshLeftHandAttachment();
     updateHandTracking(xrFrame);
