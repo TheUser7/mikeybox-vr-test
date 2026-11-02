@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.02-r21";
+const SITE_BUILD_ID = "2026.11.02-r22";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -1653,6 +1653,7 @@ async function loadModelForNode(node, itemID) {
     setProxyBounds(node, bounds);
     if (node.labelSprite) node.labelSprite.position.y = Math.max(0.32, bounds.max.y + 0.10);
     syncMesh(node);
+    refreshSelectionOutlines();
     setStatus(`${getItemDisplayName(itemID)} 3D model loaded.`);
   } catch (error) {
     console.warn(`Could not load model for ${itemID} from ./models/${filename}`, error);
@@ -2065,15 +2066,24 @@ function clearSelectionOutlines() {
   }
   selectionOutlines.clear();
 }
+function getSelectionVisualTarget(node) {
+  // Outline only visible geometry; node.group also contains the oversized
+  // invisible grab proxy and floating label.
+  return node?.modelRoot || node?.previewMesh || node?.mesh || node?.group;
+}
 function refreshSelectionOutlines() {
   for (const [node, helper] of selectionOutlines) {
-    if (!selectedNodes.has(node) || !nodes.includes(node)) {
+    const target = getSelectionVisualTarget(node);
+    if (!selectedNodes.has(node) || !nodes.includes(node) || helper.userData.selectionTarget !== target) {
       scene.remove(helper); helper.geometry?.dispose(); helper.material?.dispose(); selectionOutlines.delete(node);
     }
   }
   for (const node of selectedNodes) {
     if (!nodes.includes(node) || selectionOutlines.has(node)) continue;
-    const helper = new THREE.BoxHelper(node.group, 0x35f2c1);
+    const target = getSelectionVisualTarget(node);
+    if (!target) continue;
+    const helper = new THREE.BoxHelper(target, 0x35f2c1);
+    helper.userData.selectionTarget = target;
     helper.material.depthTest = false; helper.material.transparent = true; helper.material.opacity = 0.95;
     helper.renderOrder = 1000; scene.add(helper); selectionOutlines.set(node, helper);
   }
