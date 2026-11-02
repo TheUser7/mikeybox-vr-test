@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.02-r22";
+const SITE_BUILD_ID = "2026.11.02-r23";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -973,7 +973,7 @@ function addPanelText(text, x, y, width, height, fontSize = 42, color = "#f5f8fb
   panel.add(mesh);
   return mesh;
 }
-function addButton(label, action, x, y, width = 0.34, height = 0.15, tone = "normal") {
+function addButton(label, action, x, y, width = 0.34, height = 0.15, tone = "normal", labelLayout = null) {
   const tones = {
     normal: [0x29404e, 0x6b8798],
     good: [0x176c65, 0x50c4ac],
@@ -992,16 +992,18 @@ function addButton(label, action, x, y, width = 0.34, height = 0.15, tone = "nor
     new THREE.EdgesGeometry(new THREE.BoxGeometry(width, height, 0.045)),
     new THREE.LineBasicMaterial({ color: edge })
   ));
+  const faceWidth = labelLayout?.width || width * 0.94;
   const face = new THREE.Mesh(
-    new THREE.PlaneGeometry(width * 0.94, height * 0.76),
+    new THREE.PlaneGeometry(faceWidth, height * 0.76),
     new THREE.MeshBasicMaterial({
-      map: makeAspectCanvasTexture(label, (width * 0.94) / (height * 0.76), 54 * UI_BUTTON_FONT_SCALE, "#f5f8fb", 1024),
+      map: makeAspectCanvasTexture(label, faceWidth / (height * 0.76), 54 * UI_BUTTON_FONT_SCALE, "#f5f8fb", 1024),
       transparent: true,
       depthTest: false,
       depthWrite: false,
       toneMapped: false
     })
   );
+  face.position.x = labelLayout?.x || 0;
   face.position.z = 0.024;
   face.renderOrder = 101;
   face.frustumCulled = false;
@@ -1097,6 +1099,61 @@ function openItemCatalog() {
   }
   redrawPanel();
 }
+function addCatalogItemPreview(entry, x, y) {
+  const preview = new THREE.Group();
+  preview.userData.catalogItemID = entry.id;
+  preview.position.set(x, y, 0.075);
+  panel.add(preview);
+
+  const tile = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.125, 0.125),
+    new THREE.MeshBasicMaterial({ color: 0x172a34, depthTest: false, depthWrite: false })
+  );
+  tile.position.z = -0.012;
+  preview.add(tile);
+
+  const placeholder = new THREE.Mesh(
+    makeItemPreviewGeometry(entry.id),
+    new THREE.MeshStandardMaterial({ color: colorFor(entry.id), roughness: 0.68, metalness: 0.04 })
+  );
+  const placeholderBounds = new THREE.Box3().setFromObject(placeholder);
+  const placeholderSize = placeholderBounds.getSize(new THREE.Vector3());
+  const placeholderMax = Math.max(placeholderSize.x, placeholderSize.y, placeholderSize.z, 0.001);
+  placeholder.scale.setScalar(0.085 / placeholderMax);
+  placeholder.position.y = -0.002;
+  placeholder.rotation.set(-0.18, 0.55, 0.08);
+  preview.add(placeholder);
+
+  // Use the real uploaded GLB when one exists; otherwise keep the lightweight
+  // category-shaped preview so every catalog entry has a visual thumbnail.
+  if (MODEL_ASSETS.has(entry.id)) {
+    loadModelTemplate(entry.id).then((template) => {
+      if (!template || preview.parent !== panel || preview.userData.catalogItemID !== entry.id) return;
+      const model = template.clone(true);
+      model.traverse((object) => {
+        if (!object.isMesh) return;
+        object.geometry = object.geometry?.clone();
+        if (Array.isArray(object.material)) object.material = object.material.map((material) => material.clone());
+        else if (object.material) object.material = object.material.clone();
+      });
+      model.updateMatrixWorld(true);
+      const bounds = new THREE.Box3().setFromObject(model);
+      if (bounds.isEmpty()) return;
+      const size = bounds.getSize(new THREE.Vector3());
+      const center = bounds.getCenter(new THREE.Vector3());
+      const longest = Math.max(size.x, size.y, size.z, 0.0001);
+      model.position.sub(center);
+      model.scale.setScalar(0.085 / longest);
+      model.rotation.set(-0.18, 0.55, 0.08);
+      preview.remove(placeholder);
+      placeholder.geometry.dispose();
+      placeholder.material.dispose();
+      preview.add(model);
+    }).catch((error) => console.warn("Catalog preview could not load:", entry.id, error));
+  }
+  return preview;
+}
+
 function drawItemCatalogPanel() {
   clearPanel();
   drawPanelBackground("CHOOSE AN ITEM");
@@ -1120,7 +1177,10 @@ function drawItemCatalogPanel() {
     const label = MODEL_ASSETS.has(entry.id)
       ? `${entry.name} · ${modelState === "loaded" ? "3D OK" : modelState === "error" ? "3D ERROR" : "3D"}`
       : entry.name;
-    addButton(label, `catalogPick:${entry.id}`, columns[col], rows[row], 0.78, 0.15, entry.id === pendingItemID ? "active" : "normal");
+    const buttonX = columns[col];
+    const buttonY = rows[row];
+    addButton(label, `catalogPick:${entry.id}`, buttonX, buttonY, 0.78, 0.15, entry.id === pendingItemID ? "active" : "normal", { width: 0.52, x: 0.085 });
+    addCatalogItemPreview(entry, buttonX - 0.285, buttonY);
   });
   if (visible.length === 0) addPanelText("NO ITEMS IN THIS CATEGORY", 0, -0.25, 1.45, 0.10, 22, "#f0c6a5");
 
