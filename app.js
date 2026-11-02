@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.02-r24";
+const SITE_BUILD_ID = "2026.11.02-r25";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -2752,7 +2752,12 @@ function updateRightHandMultiSelection() {
     record.multiSelectWasHeld = false;
     return;
   }
-  if (!record.multiSelectWasHeld) setStatus("A detected: touch parts with your right controller to add them.");
+  if (!record.multiSelectWasHeld) {
+    // Treat each fresh A press as a new selection pass. This also lets the
+    // player deselect an item they're already hovering when A is pressed.
+    record.multiSelectTouches = new Set();
+    setStatus("A detected: touch parts to add them or remove selected parts.");
+  }
   record.multiSelectWasHeld = true;
   record.grip.updateMatrixWorld(true);
   const handPosition = new THREE.Vector3().setFromMatrixPosition(record.grip.matrixWorld);
