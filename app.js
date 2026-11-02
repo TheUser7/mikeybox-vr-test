@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.01-r19";
+const SITE_BUILD_ID = "2026.11.02-r20";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -618,7 +618,7 @@ let leftXWasPressed = false;
 // right stick snaps the player's facing direction in 30-degree steps. Two
 // controller grips scale and reposition the whole workspace in 3D unless an
 // actual item is already held; in that case they scale the held item.
-const joystickConfig = { moveSpeed: 1.65, verticalSpeed: 1.35, deadzone: 0.18, turnStepDegrees: 30, turnThreshold: 0.68, turnReleaseThreshold: 0.25 };
+const joystickConfig = { moveSpeed: 2.6, verticalSpeed: 2.1, deadzone: 0.18, turnStepDegrees: 30, turnThreshold: 0.68, turnReleaseThreshold: 0.25 };
 const joystickState = { turnArmed: true };
 const dragStates = new Map();
 let twoHandScaleState = null;
