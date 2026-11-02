@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.02-r20";
+const SITE_BUILD_ID = "2026.11.02-r21";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -2989,6 +2989,14 @@ function applyPlayerSnapTurn(xrCamera, direction) {
   updateTransformGizmo();
 }
 
+function getPlayerMovementScaleFactor() {
+  // The workspace uses inverse player scale: a smaller worldGroup means a
+  // larger virtual player. Scale locomotion by that inverse directly, without
+  // the old 0.25 floor that made speed stop slowing at larger sizes.
+  const playerScale = 1 / Math.max(0.0001, Math.abs(worldGroup.scale.x));
+  return THREE.MathUtils.clamp(1 / playerScale, 0.05, 4.0);
+}
+
 function updateJoystickMovement(deltaSeconds) {
   if (!renderer.xr.isPresenting || isJoystickStickEditHeld()) return;
   // Avoid moving the workspace while a part is being manipulated or an
@@ -3017,14 +3025,14 @@ function updateJoystickMovement(deltaSeconds) {
   if (move.lengthSq() > 0.0001) {
     // Move the workspace opposite the desired player motion. This moves the
     // player through the scene without moving the selected part independently.
-    worldGroup.position.addScaledVector(move, -joystickConfig.moveSpeed * dt * Math.max(0.25, worldGroup.scale.x));
+    worldGroup.position.addScaledVector(move, -joystickConfig.moveSpeed * dt * getPlayerMovementScaleFactor());
   }
 
   // Right stick vertical moves the player up/down; the workspace moves in
   // the opposite direction so the headset experiences true 3D locomotion.
   const verticalInput = -right.y;
   if (Math.abs(verticalInput) > 0.0001) {
-    worldGroup.position.y -= verticalInput * joystickConfig.verticalSpeed * dt * Math.max(0.25, worldGroup.scale.x);
+    worldGroup.position.y -= verticalInput * joystickConfig.verticalSpeed * dt * getPlayerMovementScaleFactor();
   }
 
   // Right stick horizontal: one comfortable snap-turn per stick flick.
