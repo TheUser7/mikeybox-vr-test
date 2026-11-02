@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.02-r23";
+const SITE_BUILD_ID = "2026.11.02-r24";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -2155,6 +2155,18 @@ function addToMultiSelection(node) {
   setStatus(`Added ${getItemDisplayName(node.item.itemID)}. ${selectedNodes.size} item(s) selected.`);
   return true;
 }
+function removeFromMultiSelection(node) {
+  if (!node || !selectedNodes.has(node)) return false;
+  selectedNodes.delete(node);
+  if (selected === node) selected = [...selectedNodes].at(-1) || null;
+  if (selected) pendingItemID = selected.item.itemID;
+  refreshSelectionOutlines(); updateTransformGizmo(); redrawPanel();
+  setStatus(`Removed ${getItemDisplayName(node.item.itemID)}. ${selectedNodes.size} item(s) selected.`);
+  return true;
+}
+function toggleMultiSelection(node) {
+  return selectedNodes.has(node) ? removeFromMultiSelection(node) : addToMultiSelection(node);
+}
 function isNodeDescendantOf(node, possibleAncestor) {
   let current = node?.parent || null;
   while (current) { if (current === possibleAncestor) return true; current = current.parent; }
@@ -2750,7 +2762,7 @@ function updateRightHandMultiSelection() {
     // surface margin to make physical-touch selection register consistently.
     if (nodeGrabSurfaceDistance(node, handPosition) <= 0.20) {
       touchingNow.add(node);
-      if (!record.multiSelectTouches?.has(node)) addToMultiSelection(node);
+      if (!record.multiSelectTouches?.has(node)) toggleMultiSelection(node);
     }
   }
   record.multiSelectTouches = touchingNow;
