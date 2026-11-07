@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.02-r25";
+const SITE_BUILD_ID = "2026.11.07-r26";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -975,11 +975,11 @@ function addPanelText(text, x, y, width, height, fontSize = 42, color = "#f5f8fb
 }
 function addButton(label, action, x, y, width = 0.34, height = 0.15, tone = "normal", labelLayout = null) {
   const tones = {
-    normal: [0x29404e, 0x6b8798],
-    good: [0x176c65, 0x50c4ac],
-    danger: [0x542c35, 0xb55e70],
-    muted: [0x303c45, 0x71818b],
-    active: [0x1b504d, 0x67dbc5]
+    normal: [0x1d303c, 0x527482],
+    good: [0x174b48, 0x55cdb3],
+    danger: [0x482a35, 0xb96c7c],
+    muted: [0x25323b, 0x596d78],
+    active: [0x17443f, 0x75e5c8]
   };
   const [base, edge] = tones[tone] || tones.normal;
   const button = new THREE.Mesh(
@@ -1030,15 +1030,36 @@ function clearPanel() {
   statusTextMesh = null;
 }
 function drawPanelBackground(title) {
-  const bg = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.68, 2.12),
-    new THREE.MeshBasicMaterial({ color: 0x101e28, transparent: true, opacity: 0.96, depthWrite: false })
-  );
-  bg.position.z = -0.015;
-  panel.add(bg);
-  addPanelText(title, 0, 0.86, 1.55, 0.14, 42);
-  statusTextMesh = addPanelText(statusText, 0, 0.68, 1.53, 0.09, 23, "#9ee5d1");
-  addPanelText(`${SITE_VERSION} · BUILD ${SITE_BUILD_ID}`, 0, -1.025, 1.48, 0.055, 14, "#83d9c7");
+  const roundedPanel = (width, height, radius) => {
+    const shape = new THREE.Shape();
+    const x = -width / 2, y = -height / 2, r = Math.min(radius, width / 2, height / 2);
+    shape.moveTo(x + r, y);
+    shape.lineTo(x + width - r, y); shape.quadraticCurveTo(x + width, y, x + width, y + r);
+    shape.lineTo(x + width, y + height - r); shape.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    shape.lineTo(x + r, y + height); shape.quadraticCurveTo(x, y + height, x, y + height - r);
+    shape.lineTo(x, y + r); shape.quadraticCurveTo(x, y, x + r, y);
+    return new THREE.ShapeGeometry(shape, 8);
+  };
+  // Layered rounded shell gives the wrist UI a clean, premium glass-panel look.
+  const frame = new THREE.Mesh(roundedPanel(1.73, 2.17, 0.105),
+    new THREE.MeshBasicMaterial({ color: 0x426b78, transparent: true, opacity: 0.96, depthWrite: false }));
+  frame.position.z = -0.032; frame.renderOrder = 90; panel.add(frame);
+  const bg = new THREE.Mesh(roundedPanel(1.68, 2.12, 0.095),
+    new THREE.MeshBasicMaterial({ color: 0x0b1721, transparent: true, opacity: 0.985, depthWrite: false }));
+  bg.position.z = -0.015; bg.renderOrder = 91; panel.add(bg);
+  const accent = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.018),
+    new THREE.MeshBasicMaterial({ color: 0x63e0c3, transparent: true, opacity: 0.95, depthWrite: false }));
+  accent.position.set(-0.48, 0.995, 0.002); accent.renderOrder = 92; panel.add(accent);
+  const separator = (y, opacity = 0.34) => {
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(1.42, 0.003),
+      new THREE.MeshBasicMaterial({ color: 0x66818e, transparent: true, opacity, depthWrite: false }));
+    line.position.set(0, y, 0.002); line.renderOrder = 92; panel.add(line);
+  };
+  separator(0.615, 0.48);
+  separator(-0.745, 0.24);
+  addPanelText(title, 0, 0.86, 1.55, 0.14, 42, "#f4fbff");
+  statusTextMesh = addPanelText(statusText, 0, 0.68, 1.53, 0.09, 23, "#83e6ce");
+  addPanelText(`${SITE_VERSION} · BUILD ${SITE_BUILD_ID}`, 0, -1.025, 1.48, 0.055, 14, "#78bfae");
 }
 function drawMainPanel() {
   clearPanel();
