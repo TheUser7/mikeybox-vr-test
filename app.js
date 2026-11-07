@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.07-r26";
+const SITE_BUILD_ID = "2026.11.07-r27";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -3683,6 +3683,30 @@ $("fileInput").addEventListener("change", async (event) => {
   }
   event.target.value = "";
 });
+
+// Prepare the landing screen automatically as soon as the builder module loads.
+// Immersive WebXR itself still needs the user's launch-button gesture in Quest Browser.
+async function updateLaunchReadiness() {
+  const status = $("landingStatus");
+  const button = $("enterVR");
+  if (!status || !button) return;
+  status.textContent = "3D workspace loaded · checking headset support…";
+  if (!navigator.xr) {
+    status.textContent = "Workspace loaded · open this page in Quest Browser to enter VR.";
+    button.querySelector("small").textContent = "Open in Quest Browser";
+    return;
+  }
+  try {
+    const supported = await navigator.xr.isSessionSupported("immersive-vr");
+    status.textContent = supported
+      ? "Headset ready · your builder is ready to launch."
+      : "Workspace loaded · immersive VR is not available in this browser.";
+    button.querySelector("small").textContent = supported ? "Your Quest is ready" : "Open on a supported VR headset";
+  } catch (error) {
+    status.textContent = "Workspace loaded · press Enter VR when your headset is ready.";
+  }
+}
+updateLaunchReadiness();
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
