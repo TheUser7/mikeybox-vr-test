@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.09-r28";
+const SITE_BUILD_ID = "2026.11.09-r29";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -2782,16 +2782,18 @@ function updateRightHandMultiSelection() {
   record.multiSelectWasHeld = true;
   record.grip.updateMatrixWorld(true);
   const handPosition = new THREE.Vector3().setFromMatrixPosition(record.grip.matrixWorld);
-  const touchingNow = new Set();
+  // Remember every item touched during this entire A-button hold.
+  // Moving away and hovering over the same item again must not toggle it twice.
+  if (!record.multiSelectTouches) record.multiSelectTouches = new Set();
   for (const node of nodes) {
     // Quest's grip pose sits behind the controller shell, so allow a forgiving
     // surface margin to make physical-touch selection register consistently.
-    if (nodeGrabSurfaceDistance(node, handPosition) <= 0.20) {
-      touchingNow.add(node);
-      if (!record.multiSelectTouches?.has(node)) toggleMultiSelection(node);
+    if (nodeGrabSurfaceDistance(node, handPosition) <= 0.20
+      && !record.multiSelectTouches.has(node)) {
+      record.multiSelectTouches.add(node);
+      toggleMultiSelection(node);
     }
   }
-  record.multiSelectTouches = touchingNow;
 }
 function beginDrag(rayController, grip) {
   // In full-edit mode, a visible gizmo handle has priority. In B/object-only
