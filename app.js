@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // Visible release identification: update this tag for each published site build.
 const SITE_VERSION = "1.0.0";
-const SITE_BUILD_ID = "2026.11.07-r27";
+const SITE_BUILD_ID = "2026.11.09-r28";
 const UI_PANEL_FONT_SCALE = 1.6;
 const UI_BUTTON_FONT_SCALE = 1.5;
 // Built-in selectable item catalog. Weapon/hidden entries are excluded;
@@ -2822,6 +2822,11 @@ function beginDrag(rayController, grip) {
     setStatus("Move your controller hand close to a part, then hold the grip button to pick it up.");
     return;
   }
+  // On the right controller, holding A while squeezing Grip duplicates the
+  // complete item subtree and attaches the new copy to the controller.
+  const copyRecord = controllerRecords.find((record) => record.controller === rayController);
+  if (isCopyModifierHeld(copyRecord) && duplicateNodeSubtreeForGrab(node, rayController, grip)) return;
+
   grip.updateMatrixWorld(true);
   node.group.updateMatrixWorld(true);
   const offset = grip.matrixWorld.clone().invert().multiply(node.group.matrixWorld);
